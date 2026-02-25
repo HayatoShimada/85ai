@@ -109,8 +109,8 @@ export default function Home() {
         setRecommendation(resData.data);
         setAppState("RESULT");
         // AIのコメントを読み上げ
-        if (resData.data.reason) {
-          speakText(resData.data.reason);
+        if (resData.data.analyzed_outfit) {
+          speakText(resData.data.analyzed_outfit);
         }
       } else {
         throw new Error(resData.message || "Unknown error occurred");
@@ -279,108 +279,122 @@ export default function Home() {
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
-            className="w-full max-w-6xl grid md:grid-cols-2 gap-8 lg:gap-12 items-start"
+            className="w-full max-w-7xl flex flex-col items-center gap-8 lg:gap-12"
           >
-            {/* 左側: AIコメントとスキャン画像 */}
-            <div className="space-y-6">
-              <div className="bg-slate-800/50 rounded-3xl p-6 sm:p-8 border border-slate-700 backdrop-blur-sm relative overflow-hidden">
-                <div className="absolute top-0 left-0 w-2 h-full bg-gradient-to-b from-emerald-400 to-cyan-400" />
+            {/* 上部: AIの分析結果とスキャン画像 */}
+            <div className="w-full bg-slate-800/80 rounded-3xl p-6 sm:p-8 border border-slate-700 backdrop-blur-md relative overflow-hidden flex flex-col md:flex-row gap-8 items-start flex-wrap">
+              <div className="absolute top-0 left-0 w-2 h-full bg-gradient-to-b from-cyan-400 to-emerald-400" />
 
-                <div className="flex items-start space-x-4">
-                  <div className="flex-shrink-0 w-12 h-12 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400">
-                    <Volume2 className="w-6 h-6" />
-                  </div>
-                  <div className="space-y-3">
-                    <h3 className="text-xl font-bold text-slate-200">AI店員からの提案</h3>
-                    <p className="text-lg leading-relaxed text-slate-300">
-                      {recommendation.reason}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="mt-8 flex flex-wrap gap-2">
-                  {recommendation.search_keywords?.map((kw: string, idx: number) => (
-                    <span key={idx} className="px-3 py-1 bg-slate-700 text-cyan-300 rounded-full text-sm font-medium border border-slate-600">
-                      #{kw}
-                    </span>
-                  ))}
-                </div>
-              </div>
-
+              {/* マスク付き画像表示領域 */}
               {capturedImage && (
-                <div className="flex items-center space-x-4 bg-slate-800/30 p-4 rounded-2xl border border-slate-800">
-                  <div className="w-16 h-20 rounded-lg overflow-hidden flex-shrink-0">
-                    <img src={capturedImage} className="w-full h-full object-cover" alt="Captured" />
-                  </div>
-                  <div className="text-sm text-slate-400">
-                    <Check className="w-4 h-4 inline mr-1 text-emerald-500" />
-                    あなたのコーディネートを分析済み
+                <div className="relative flex-shrink-0 w-auto">
+                  <div className="relative rounded-xl overflow-hidden shadow-2xl border-4 border-slate-700 bg-slate-900 mx-auto" style={{ maxWidth: "240px" }}>
+                    <img src={capturedImage} className="w-full object-contain block opacity-90" alt="Captured" />
+
+                    {/* AIが認識した服のマスク / バウンディングボックス */}
+                    {recommendation.box_ymin !== undefined && recommendation.box_ymax !== 1000 && (
+                      <div
+                        className="absolute border-[3px] border-emerald-400 bg-emerald-400/20 shadow-[0_0_15px_rgba(16,185,129,0.5)] flex items-center justify-center pointer-events-none"
+                        style={{
+                          top: `${(recommendation.box_ymin / 1000) * 100}%`,
+                          left: `${(recommendation.box_xmin / 1000) * 100}%`,
+                          height: `${((recommendation.box_ymax - recommendation.box_ymin) / 1000) * 100}%`,
+                          width: `${((recommendation.box_xmax - recommendation.box_xmin) / 1000) * 100}%`
+                        }}
+                      >
+                        <div className="bg-emerald-500 text-white text-[10px] sm:text-xs font-bold px-1.5 py-0.5 rounded-br-lg absolute top-0 left-0">
+                          Target
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
+
+              {/* プロンプトに投げた内容と解析結果 */}
+              <div className="flex-1 space-y-4">
+                <div className="flex items-center space-x-3 text-cyan-400">
+                  <Sparkles className="w-6 h-6" />
+                  <h3 className="text-xl font-bold">スタイリング分析結果</h3>
+                </div>
+                <div className="bg-slate-900/50 p-5 rounded-2xl border border-slate-700 text-slate-300">
+                  <p className="text-lg leading-relaxed">
+                    {recommendation.analyzed_outfit}
+                  </p>
+                </div>
+              </div>
             </div>
 
-            {/* 右側: Shopify商品リスト */}
-            <div className="space-y-6">
-              <div className="flex items-center justify-between">
-                <h3 className="text-2xl font-bold flex items-center">
-                  <span className="bg-emerald-500 w-3 h-8 rounded-full mr-3 inline-block" />
-                  おすすめのアイテム
-                </h3>
-                <span className="text-slate-400 text-sm">
-                  {recommendation.shopify_products?.length || 0}件見つかりました
-                </span>
-              </div>
+            {/* 下部: 各パターンの提案と商品リスト */}
+            <div className="w-full space-y-8">
+              <h3 className="text-2xl font-bold flex items-center">
+                <span className="bg-emerald-500 w-3 h-8 rounded-full mr-3 inline-block" />
+                おすすめのコーディネート ({recommendation.recommendations?.length || 0}パターン)
+              </h3>
 
-              <div className="grid gap-4 sm:grid-cols-2">
-                {recommendation.shopify_products?.length > 0 ? (
-                  recommendation.shopify_products.map((product: any) => (
-                    <div key={product.id} className="bg-slate-800 rounded-2xl overflow-hidden border border-slate-700 hover:border-emerald-500/50 transition-colors group">
-                      <div className="aspect-square relative bg-slate-900">
-                        {product.image_url ? (
-                          <img src={product.image_url} alt={product.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-                        ) : (
-                          <div className="absolute inset-0 flex items-center justify-center text-slate-600">No Image</div>
-                        )}
-                        <div className="absolute top-3 left-3 px-3 py-1 bg-black/70 backdrop-blur-md rounded-full text-sm font-bold text-emerald-400">
-                          在庫あり
-                        </div>
-                      </div>
-
-                      <div className="p-5 space-y-3">
-                        <h4 className="font-bold text-lg line-clamp-1 truncate" title={product.title}>{product.title}</h4>
-                        <p className="text-emerald-400 font-bold text-xl">{product.price}</p>
-
-                        <a
-                          href={product.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="mt-4 block w-full py-3 text-center bg-slate-700 hover:bg-slate-600 text-white rounded-xl font-medium transition-colors"
-                        >
-                          詳細を見る
-                        </a>
+              <div className="grid gap-8 lg:grid-cols-3">
+                {recommendation.recommendations?.map((rec: any, idx: number) => (
+                  <div key={idx} className="bg-slate-800/50 rounded-2xl border border-slate-700 p-6 flex flex-col items-center">
+                    <div className="w-full space-y-3 mb-6">
+                      <h4 className="text-xl font-bold text-emerald-400 border-b border-emerald-500/30 pb-2">{rec.title}</h4>
+                      <p className="text-slate-300 text-sm leading-relaxed">{rec.reason}</p>
+                      <div className="flex flex-wrap gap-2 pt-2">
+                        {rec.search_keywords?.map((kw: string, i: number) => (
+                          <span key={i} className="px-2 py-1 bg-slate-900 border border-emerald-500/30 text-emerald-300 rounded-md text-xs font-medium">
+                            #{kw}
+                          </span>
+                        ))}
                       </div>
                     </div>
-                  ))
-                ) : (
-                  <div className="col-span-2 bg-slate-800/50 border border-slate-700 border-dashed rounded-3xl p-12 text-center text-slate-400">
-                    <p className="text-lg">現在、条件に合うアイテムが店舗にありません。</p>
-                    <p className="text-sm mt-2">条件を変えてもう一度お試しください。</p>
-                  </div>
-                )}
-              </div>
 
-              <div className="pt-8">
-                <button
-                  onClick={resetApp}
-                  className="w-full py-4 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-2xl font-bold flex items-center justify-center space-x-2 transition-colors border border-slate-700 hover:border-slate-600"
-                >
-                  <RefreshCcw className="w-5 h-5" />
-                  <span>最初からやり直す</span>
-                </button>
+                    <div className="w-full flex-1 flex flex-col gap-4">
+                      {rec.shopify_products?.length > 0 ? (
+                        rec.shopify_products.slice(0, 2).map((product: any) => (
+                          <div key={product.id} className="bg-slate-900 rounded-xl overflow-hidden border border-slate-700 hover:border-emerald-500/50 transition-colors group flex items-start gap-4 p-3">
+                            <div className="w-20 h-20 flex-shrink-0 relative rounded-lg overflow-hidden bg-slate-800">
+                              {product.image_url ? (
+                                <img src={product.image_url} alt={product.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                              ) : (
+                                <div className="absolute inset-0 flex items-center justify-center text-slate-600 text-xs">No Image</div>
+                              )}
+                            </div>
+
+                            <div className="flex-1 min-w-0">
+                              <h5 className="font-bold text-sm text-slate-200 line-clamp-2" title={product.title}>{product.title}</h5>
+                              <p className="text-emerald-400 font-bold mt-1 text-sm">{product.price}</p>
+                              <a
+                                href={product.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="mt-2 inline-block px-3 py-1 bg-slate-700 hover:bg-slate-600 text-xs text-white rounded font-medium transition-colors"
+                              >
+                                詳細
+                              </a>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="bg-slate-900/50 border border-slate-700 border-dashed rounded-xl p-6 flex items-center justify-center h-full text-center text-slate-500 text-sm">
+                          <div>
+                            このパターンの該当商品が<br />店舗にありません
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
 
+            <div className="pt-4 pb-12 w-full text-center">
+              <button
+                onClick={resetApp}
+                className="inline-flex py-4 px-12 bg-emerald-600 hover:bg-emerald-500 text-white rounded-full text-lg sm:text-xl font-bold items-center justify-center space-x-2 transition-all transform hover:scale-105 shadow-[0_0_20px_rgba(16,185,129,0.4)]"
+              >
+                <RefreshCcw className="w-6 h-6" />
+                <span>最初からやり直す</span>
+              </button>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

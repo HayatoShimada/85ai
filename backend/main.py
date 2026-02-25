@@ -36,13 +36,15 @@ async def analyze_image(file: UploadFile = File(...)):
         # 文字列として返ってきたJSONを辞書型に変換
         result_dict = json.loads(json_str_response)
         
-        # Shopifyで商品を検索
-        keywords = result_dict.get("search_keywords", [])
-        if keywords:
-            shopify_res = search_products_on_shopify(keywords)
-            result_dict["shopify_products"] = shopify_res.get("products", [])
-        else:
-            result_dict["shopify_products"] = []
+        # Shopifyで商品を検索（複数の提案パターンごとに実行）
+        recommendations = result_dict.get("recommendations", [])
+        for rec in recommendations:
+            keywords = rec.get("search_keywords", [])
+            if keywords:
+                shopify_res = search_products_on_shopify(keywords)
+                rec["shopify_products"] = shopify_res.get("products", [])
+            else:
+                rec["shopify_products"] = []
             
         return {"status": "success", "data": result_dict}
     except json.JSONDecodeError:
