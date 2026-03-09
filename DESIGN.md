@@ -6,52 +6,48 @@
 お客様がその日に着ている服をカメラで読み取り、AIがそれに合う「一点モノ」の古着をShopifyのリアルタイム在庫から提案する。
 
 ### 本番想定環境
-- **中核ハブ:** Mac Studio（カメラ認識・AI通信・映像演出の一括処理）
+- **中核ハブ:** Mac Studio（バックエンド実行・カメラ認識・AI通信・ミラー映像処理）
 - **操作端末:** iPad（ブラウザベースのリモートUI）
 - **空間デバイス:** 超短焦点プロジェクター + 店舗用スピーカー
+- **通信:** iPad ↔ Mac Studio 間はWebSocket経由で状態同期
 
 ### 開発・検証環境
-- **Ubuntu (WSL2含む)** 上でバックエンド・フロントエンドの全機能を開発・テスト可能にする
+- **Ubuntu (WSL2含む)** 上でバックエンド・フロントエンドの全機能を開発・テスト可能
 - カメラはUSB Webカメラまたはブラウザ内蔵カメラ（`getUserMedia`）を使用
-- プロジェクション演出はブラウザ上でのプレビューで代替
+- プロジェクション演出はブラウザ上のプレビューで代替
 
 ---
 
 ## 2. システムアーキテクチャ
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│                      フロントエンド (Next.js)                      │
-│                     http://localhost:3000                          │
-│                                                                   │
-│  ┌────────────┐  ┌──────────┐  ┌───────────┐  ┌──────────────┐  │
-│  │ 好み入力    │→│ カメラUI  │→│ 撮影・送信  │→│ 結果表示     │  │
-│  │ スタイルタグ │  │getUserMedia│  │ FormData  │  │ + 音声読上  │  │
-│  │ + 顧客登録  │  └──────────┘  │ + 好みタグ │  │ + 商品提案  │  │
-│  └──────┬─────┘                 └─────┬─────┘  └──────────────┘  │
-│         │ POST /api/customers          │ POST /api/analyze        │
-└─────────┼──────────────────────────────┼─────────────────────────┘
-          │                              │
-┌─────────┼──────────────────────────────┼─────────────────────────┐
-│         │    バックエンド (FastAPI)      │                         │
-│         │   http://localhost:8000       │                         │
-│         │                              │                         │
-│  ┌──────▼──────────┐  ┌───────────────▼──────────────────┐      │
-│  │ /api/customers   │  │ /api/analyze エンドポイント       │      │
-│  │ 顧客登録/検索    │  │  1. 画像 + 好みタグ受信           │      │
-│  │ 好み保存/取得    │  │  2. Gemini API で服装解析          │      │
-│  └────────┬────────┘  │     (好みを加味した提案)           │      │
-│           │            │  3. Shopify API で在庫商品検索     │      │
-│           │            │  4. 統合結果をJSONで返却           │      │
-│           │            └──────┬───────────────┬────────────┘      │
-│           │                   │               │                   │
-│  ┌────────▼─────────┐ ┌──────▼───────┐ ┌─────▼──────────┐       │
-│  │customer_service  │ │gemini_service│ │shopify_service │       │
-│  │(Shopify Admin    │ │(Gemini 2.5   │ │(Storefront     │       │
-│  │ API - 顧客管理)  │ │ Flash API)   │ │ GraphQL API)   │       │
-│  └──────────────────┘ └──────────────┘ └────────────────┘       │
-└──────────────────────────────────────────────────────────────────┘
+┌─────────────┐    WebSocket     ┌──────────────┐    WebSocket     ┌─────────────────┐
+│  iPad (操作) │ ──────────────→ │  Backend      │ ──────────────→ │ プロジェクター   │
+│  port:3000   │  /ws/projection │  FastAPI      │  /ws/projection │ (投影画面)       │
+│  page.tsx    │  /control       │  port:8000    │  /display       │ projection/      │
+└─────────────┘                  │               │                 │ page.tsx         │
+       │                         │  ┌──────────┐ │                 └─────────────────┘
+       │  REST API               │  │ Gemini   │ │
+       │  POST /api/analyze      │  │ 3.1 Pro  │ │
+       │  GET/POST /api/customers│  └──────────┘ │
+       └─────────────────────────│               │
+                                 │  ┌──────────┐ │     ┌──────────────┐
+                                 │  │ Shopify  │ │     │ USBカメラ     │
+                                 │  │ GraphQL  │ │     │ (ミラー用)    │
+                                 │  └──────────┘ │     └──────┬───────┘
+                                 │               │            │
+                                 │  Vision/      │←───────────┘
+                                 │  MediaPipe    │  OpenCV
+                                 └──────────────┘
 ```
+
+### デバイス間通信
+
+iPad（操作）とプロジェクター（表示）は別デバイス・別ブラウザで動作する。
+状態同期はバックエンドのWebSocketリレー（`ProjectionManager`）経由で行う。
+
+- iPad → `WS /ws/projection/control` → Backend → `WS /ws/projection/display` → プロジェクター
+- ミラーフレーム: Backend(OpenCV + Vision/MediaPipe) → `WS /ws/projection/display` → プロジェクター
 
 ---
 
@@ -59,22 +55,28 @@
 
 | レイヤー | 技術 | 用途 |
 |---------|------|------|
-| フロントエンド | Next.js 16 (React 19) | SPA・カメラUI |
+| フロントエンド | Next.js 16 (React 19) | SPA・カメラUI・演出画面 |
 | スタイリング | Tailwind CSS v4 | UIデザイン |
 | アニメーション | Framer Motion | 画面遷移・ローディング演出 |
 | アイコン | Lucide React | UIアイコン |
-| バックエンド | FastAPI (Python 3.11+) | REST API サーバー |
-| AI推論 | Google Gemini API (`gemini-2.5-flash`) | 服装解析・提案生成 |
-| EC連携（商品検索） | Shopify Storefront API (GraphQL) | 在庫商品検索 |
-| EC連携（顧客管理） | Shopify Admin API (GraphQL) | 顧客登録・好み保存 |
+| QRコード | qrcode.react | 商品QRコード生成 |
+| バックエンド | FastAPI (Python 3.11+) | REST API + WebSocket サーバー |
+| AI推論 | Google Gemini API (`gemini-3.1-pro`) | 服装解析・提案生成 |
+| EC連携（商品） | Shopify Storefront API (GraphQL, `2026-01`) | 在庫商品検索 |
+| EC連携（顧客） | Shopify Admin API (GraphQL, `2026-01`) | 顧客登録・好み保存 |
+| 認証 | Client Credentials Grant | Admin APIトークン自動更新（24h） |
+| ミラー映像 | OpenCV + Apple Vision (Neural Engine) / MediaPipe | 人物セグメンテーション (1920x1080@30fps) |
 | 画像処理 | Pillow | 画像デコード |
-| コンテナ | Docker / Docker Compose | 環境統一・デプロイ |
+| コンテナ | Docker / Docker Compose | 環境統一・開発 |
+| テスト | pytest + pytest-asyncio + httpx | 25テスト |
 
 ---
 
 ## 4. API設計
 
-### `POST /api/analyze`
+### REST エンドポイント
+
+#### `POST /api/analyze`
 
 カメラで撮影した画像とユーザーの好みタグを受け取り、AI解析→商品検索→統合結果を返す。
 
@@ -92,10 +94,7 @@
   "data": {
     "analyzed_outfit": "ダークウォッシュのストレートデニムに白のベーシックTシャツ...",
     "detected_style": ["カジュアル", "アメカジ"],
-    "box_ymin": 120,
-    "box_xmin": 250,
-    "box_ymax": 650,
-    "box_xmax": 750,
+    "box_ymin": 120, "box_xmin": 250, "box_ymax": 650, "box_xmax": 750,
     "recommendations": [
       {
         "title": "アメカジ風アプローチ",
@@ -108,76 +107,61 @@
             "title": "90s Champion スウェット",
             "description": "...",
             "price": "4500.0 JPY",
-            "image_url": "https://...",
-            "url": "https://..."
+            "image_url": "https://cdn.shopify.com/...",
+            "url": "https://shop.85-store.com/..."
           }
         ]
       }
     ]
-  }
+  },
+  "warning": "一部の商品検索に失敗しました: ..."
 }
 ```
 
-### `POST /api/customers`
+#### `GET /api/customers?email={email}`
 
-顧客の登録または既存顧客の検索を行い、好みのスタイルタグをShopifyの顧客メタフィールドに保存する。
+メールアドレスで既存顧客を検索し、保存済みの好みタグを取得する。
 
-**リクエスト:**
-```json
-{
-  "name": "田中太郎",
-  "email": "tanaka@example.com",
-  "style_preferences": ["かっこいい", "ストリート", "90s"]
-}
-```
+#### `POST /api/customers`
 
-**レスポンス:**
-```json
-{
-  "status": "success",
-  "customer": {
-    "id": "gid://shopify/Customer/123456",
-    "name": "田中太郎",
-    "email": "tanaka@example.com",
-    "style_preferences": ["かっこいい", "ストリート", "90s"],
-    "is_new": false
-  }
-}
-```
+顧客の登録または既存顧客の好みを更新。Form: `name`, `email`, `style_preferences`
 
-### `GET /api/customers?email={email}`
+#### `GET /api/health`
 
-メールアドレスで既存顧客を検索し、保存済みの好みタグを取得する。リピーターの好みを即座に復元できる。
+ヘルスチェック。各外部API（Gemini / Shopify）の設定状況を返す。
 
-**レスポンス:**
-```json
-{
-  "status": "success",
-  "customer": {
-    "id": "gid://shopify/Customer/123456",
-    "name": "田中太郎",
-    "email": "tanaka@example.com",
-    "style_preferences": ["かっこいい", "ストリート", "90s"]
-  }
-}
-```
+#### `GET /api/mirror/cameras`
 
-### `GET /api/health`
+バックエンドサーバーに接続されたカメラデバイスの一覧と現在の選択を返す。
 
-ヘルスチェック用。外部API（Gemini / Shopify）の疎通確認。
+#### `POST /api/mirror/cameras/{index}`
+
+ミラーカメラを指定インデックスに切り替える。
+
+#### `POST /api/mirror/start` / `POST /api/mirror/stop`
+
+ミラーカメラの手動起動/停止。
+
+### WebSocket エンドポイント
+
+#### `WS /ws/mirror`
+ミラーカメラの人物切り抜きフレームをbase64 WebPで配信。接続時に自動起動。
+
+#### `WS /ws/projection/control`
+iPad（操作画面）から状態変更・フラッシュ指示を受信。
+
+#### `WS /ws/projection/display`
+プロジェクション表示画面に状態変更・フラッシュ・ミラーフレームを配信。
 
 ---
 
 ## 4.1 スタイルタグ定義
-
-ユーザーが選択できるスタイルタグの一覧。UIではタグチップとして表示し、複数選択可能。
 
 | カテゴリ | タグ |
 |---------|------|
 | テイスト | かっこいい、かわいい、きれいめ、ナチュラル、個性的 |
 | スタイル | ストリート、アメカジ、モード、ヴィンテージ、カジュアル、スポーティ |
 | 年代感 | 70s、80s、90s、Y2K、ミリタリー |
-| その他 | オーバーサイズ、タイト、柄モノ、モノトーン |
 
 これらのタグは:
 1. **UI上でユーザーが撮影前に選択** → Geminiプロンプトに含めて提案の方向性を調整
@@ -228,18 +212,18 @@ class ClothingAnalysis(BaseModel):
 ## 6. フロントエンド画面遷移
 
 ```
-IDLE（待機）→ PREFERENCE（好み入力・顧客登録）→ CAMERA_ACTIVE（カメラ起動）→ ANALYZING → RESULT
-  ↑                                                                                     │
-  └─────────────────────────────── リセット ←────────────────────────────────────────────┘
+IDLE（待機）→ PREFERENCE（好み入力）→ CAMERA_ACTIVE（撮影）→ ANALYZING（解析中）→ RESULT（結果）
+  ↑                                                                                    │
+  └──────────────────────────────── リセット / エラー ←──────────────────────────────────┘
 ```
 
-| 画面 | 説明 |
-|------|------|
-| IDLE | スタートボタン。体験の開始を促す |
-| PREFERENCE | 名前・メール入力 + スタイルタグ選択（かっこいい/かわいい/ナチュラル等）。リピーターはメール入力で好みを自動復元 |
-| CAMERA_ACTIVE | カメラプレビュー + 撮影ボタン |
-| ANALYZING | スキャン演出アニメーション |
-| RESULT | AI分析結果 + バウンディングボックス + 好みを加味した最大3パターンの商品提案 |
+| 画面 | iPad操作画面 | プロジェクション画面 |
+|------|-------------|-------------------|
+| IDLE | スタートボタン | ロゴ + パーティクル演出 |
+| PREFERENCE | 好みタグ選択 + 顧客入力 + カメラ選択 | 選択中タグ表示 |
+| CAMERA_ACTIVE | カメラプレビュー + 撮影ボタン | スキャングリッド + ミラー映像 |
+| ANALYZING | スキャン演出 + タイムアウト表示 | マトリックス風演出 + ミラー映像 |
+| RESULT | 分析結果 + 商品カード + QRボタン | 大画面レイアウト + QRコード直接表示 |
 
 ### PREFERENCE画面の詳細
 
@@ -261,96 +245,104 @@ IDLE（待機）→ PREFERENCE（好み入力・顧客登録）→ CAMERA_ACTIVE
 │  ── 年代感 ──                        │
 │  [70s] [80s] [90s] [Y2K]           │
 │                                     │
-│        [ 次へ → カメラ起動 ]          │
+│  撮影カメラ: [プルダウン] (ブラウザ)   │
+│  ミラーカメラ: [プルダウン] (サーバー)  │
+│                                     │
+│  [カメラで撮影] [画像をアップロード]   │
 └─────────────────────────────────────┘
 ```
 
-- タグはトグル選択（複数選択可）
-- メールアドレス入力後「復元」を押すと既存顧客の好みタグが自動選択される
-- 「次へ」で顧客情報をShopifyに保存（または更新）し、カメラ画面へ遷移
+---
+
+## 7. ミラーカメラシステム
+
+### アーキテクチャ
+
+```
+┌─────────────┐     ┌─────────────────────────────────────┐     ┌──────────────┐
+│ USB カメラ   │────→│  Backend (mirror_service.py)          │────→│ プロジェクター│
+│ 1920x1080   │     │                                      │     │ WebP表示     │
+│ MJPEG       │     │  OpenCV キャプチャ                     │     └──────────────┘
+└─────────────┘     │       ↓                              │
+                    │  左右反転 (鏡像)                       │
+                    │       ↓                              │
+                    │  ┌────────────────────────────────┐  │
+                    │  │ macOS: Apple Vision Framework   │  │
+                    │  │  VNGeneratePersonSegmentation   │  │
+                    │  │  Neural Engine (accurate mode)  │  │
+                    │  │  内部マスク: 1024x768           │  │
+                    │  ├────────────────────────────────┤  │
+                    │  │ Linux: MediaPipe Selfie Seg.    │  │
+                    │  │  Landscape model (CPU)          │  │
+                    │  │  内部マスク: 640x360 → 拡大     │  │
+                    │  └────────────────────────────────┘  │
+                    │       ↓                              │
+                    │  マスク後処理 (閾値 + ガウシアンブラー) │
+                    │       ↓                              │
+                    │  BGRA合成 → WebPエンコード → base64   │
+                    └─────────────────────────────────────┘
+```
+
+### セグメンテーションバックエンド
+
+| 環境 | バックエンド | ハードウェア | 処理速度 |
+|------|-------------|-------------|---------|
+| macOS (Apple Silicon) | Apple Vision Framework | Neural Engine | ~10-15ms/frame |
+| Linux / Docker | MediaPipe Selfie Seg. | CPU | ~15-25ms/frame |
+
+`MIRROR_SEGMENTER=auto`（デフォルト）で自動判別。macOS では Vision、Linux では MediaPipe を使用。
+
+### 処理フロー (1920x1080@30fps)
+
+1. OpenCV + MJPEG でカメラフレーム取得 (~2ms)
+2. 左右反転（鏡像）(~1ms)
+3. セグメンテーション:
+   - **Vision**: CGImage変換 → Neural Engine 推論 → CVPixelBuffer からマスク取得 (~10-15ms)
+   - **MediaPipe**: 640幅に縮小 → CPU推論 → マスクを元解像度に拡大 (~15-25ms)
+4. マスク後処理: 閾値適用 + ガウシアンブラー (~2ms)
+5. BGRA合成 + WebPエンコード (~5-10ms)
+6. base64 → WebSocket配信
+7. 適応スリープ（処理時間を差し引いてFPSを維持）
+
+### カメラ管理
+
+- `GET /api/mirror/cameras`: サーバー接続カメラの一覧 + セグメンテーションバックエンド情報
+- `POST /api/mirror/cameras/{index}`: カメラ切り替え（稼働中なら自動再起動）
+- iPad UIからプルダウンで選択可能
+- Linux: `/dev/video*` 走査、macOS: インデックス0-9試行
+- 対応デバイス: USB Webカメラ、内蔵カメラ、USB キャプチャボード
+
+### 自動起動/停止
+
+`ProjectionManager` が状態変更を監視:
+- `CAMERA_ACTIVE` / `ANALYZING` → ミラー自動起動
+- その他の状態 → ミラー自動停止
 
 ---
 
-## 7. Ubuntu 開発環境セットアップ
+## 8. 認証・トークン管理
 
-### 7.1 前提条件
+### Shopify Admin API トークン
 
-- Ubuntu 22.04+ (WSL2でも可)
-- Python 3.11+
-- Node.js 20+
-- Docker / Docker Compose (オプション)
+- 24時間で失効するトークンを `ShopifyTokenManager` が自動更新
+- Client Credentials Grant: `POST /admin/oauth/access_token`
+- スレッドセーフ（ダブルチェックロッキング）
+- 期限の5分前に更新
+- フォールバック: `.env` の静的トークン（`shpat_` prefix）
 
-### 7.2 環境変数
+### トークンプレフィクス
 
-`backend/.env` に以下を設定:
-
-```env
-GEMINI_API_KEY="your-gemini-api-key"
-SHOPIFY_STORE_URL="your-store.myshopify.com"
-SHOPIFY_STOREFRONT_ACCESS_TOKEN="your-storefront-token"
-SHOPIFY_ADMIN_API_ACCESS_TOKEN="your-admin-api-token"
-```
-
-**注:** Shopify Admin APIトークンは顧客管理（登録・好み保存）に使用。Shopify管理画面 → 設定 → アプリと販売チャネル → アプリを開発 から `write_customers`, `read_customers` スコープ付きで取得する。
-
-### 7.3 バックエンド起動
-
-```bash
-cd backend
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
-```
-
-### 7.4 フロントエンド起動
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-### 7.5 Docker Compose 起動
-
-```bash
-docker-compose up -d --build
-# フロントエンド: http://localhost:3000
-# バックエンドAPI: http://localhost:8000/docs
-```
-
-### 7.6 WSL2 固有の注意点
-
-- **カメラアクセス:** WSL2から直接USBカメラにアクセスするには `usbipd-win` でUSBデバイスをアタッチするか、ブラウザ側（Windows側のChrome等）の `getUserMedia` で代替する。フロントエンドのカメラ機能はブラウザAPIを使っているため、Windows側のブラウザからWSL2上のサーバーにアクセスすれば問題なく動作する。
-- **ネットワーク:** WSL2のIPへWindows側からアクセスする場合、`localhost` でフォワーディングされるか、WSL2のIPアドレスを直接使用する。
-
----
-
-## 8. テスト戦略
-
-### 8.1 モックモード（API不要テスト）
-
-外部API（Gemini / Shopify）のキーがなくても開発・UIテストできるよう、モックレスポンスを返すモードを用意する。
-
-- `MOCK_MODE=true` 環境変数でモック有効化
-- Gemini解析: 固定のJSON結果を返す
-- Shopify検索: ダミー商品データを返す
-
-### 8.2 単体テスト
-
-- バックエンド: `pytest` でAPIエンドポイント・サービス関数をテスト
-- フロントエンド: ブラウザE2Eは後のフェーズ
-
-### 8.3 統合テスト
-
-- `test_client.py`: ダミー画像をAPIに送信して正常レスポンスを確認
-- `pc_camera_test.py`: 実カメラからの撮影→API送信を確認
+| プレフィクス | 意味 |
+|-------------|------|
+| `shpat_` | Admin API アクセストークン |
+| `shpss_` | Client Secret |
+| `shpca_` | カスタムアプリトークン |
 
 ---
 
 ## 9. 顧客データ活用（Shopify Admin API連携）
 
-### 9.1 顧客管理フロー
+### 顧客管理フロー
 
 ```
 初回来店:
@@ -360,37 +352,88 @@ docker-compose up -d --build
   メール入力 → Shopify顧客検索 → 見つかった → 保存済み好みタグを復元 → 更新も可能
 ```
 
-### 9.2 Shopify顧客メタフィールド設計
-
-顧客の好みタグはShopifyの **Customer Metafield** に保存する。
+### Shopify顧客メタフィールド
 
 | 項目 | 値 |
 |------|------|
 | Namespace | `custom` |
 | Key | `style_preferences` |
-| Type | `list.single_line_text_field` |
+| Type | `json` |
 | 例 | `["かっこいい", "ストリート", "90s"]` |
 
-これにより:
-- Shopify管理画面からも顧客の好みが確認・編集できる
-- Shopifyの顧客セグメント機能で「ストリート好き」などのグループ化が可能
-- 将来的にメールマーケティング（好みに合った新商品入荷通知）に活用
+### データ活用の展望
 
-### 9.3 データ活用の展望
-
-- **来店履歴 × 好みタグ:** リピーターの好みの変化をトラッキング
-- **購買データ × 提案データ:** AIの提案が実際の購買にどの程度つながったかを分析
+- **来店履歴 x 好みタグ:** リピーターの好みの変化をトラッキング
+- **購買データ x 提案データ:** AIの提案が実際の購買にどの程度つながったかを分析
 - **顧客セグメント:** Shopifyの顧客グループ機能と連動し、好みベースのマーケティング施策を実施
 
 ---
 
-## 10. 将来の拡張ポイント
+## 10. エラーハンドリング
+
+| 箇所 | 対策 |
+|------|------|
+| Gemini API | 60秒タイムアウト、UI側30秒で警告・90秒でfetch中断 |
+| Shopify 検索失敗 | 部分成功: 解析結果は返し、`warning`フィールドで通知 |
+| Admin API トークン | `ShopifyTokenManager` が期限5分前に自動更新 |
+| カメラアクセス拒否 | ファイルアップロードへフォールバック |
+| 顧客登録失敗 | サイレントキャッチ、登録なしで撮影に進む |
+| 不正JSON | 空配列にフォールバック |
+
+---
+
+## 11. 開発環境セットアップ
+
+### 前提条件
+
+- Ubuntu 22.04+ (WSL2でも可)
+- Python 3.11+
+- Node.js 20+
+- Docker / Docker Compose (推奨)
+
+### 環境変数
+
+`backend/.env` に設定（`backend/.env.example` 参照）:
+
+```env
+MOCK_MODE="false"
+GEMINI_API_KEY="your-gemini-api-key"
+SHOPIFY_STORE_URL="your-store.myshopify.com"
+SHOPIFY_STOREFRONT_ACCESS_TOKEN="your-storefront-token"
+SHOPIFY_ADMIN_API_ACCESS_TOKEN="shpat_your-admin-token"
+SHOPIFY_CLIENT_ID="your-client-id"
+SHOPIFY_CLIENT_SECRET="shpss_your-client-secret"
+NEXT_PUBLIC_API_URL="http://localhost:8000"
+```
+
+### WSL2 固有の注意点
+
+- **カメラアクセス:** `usbipd-win` でUSBデバイスをWSL2にアタッチ、またはWindows側ブラウザの `getUserMedia` で代替
+- **ミラーカメラ:** Docker内からホストカメラへのアクセスには `devices:` 設定が必要（Linuxのみ）
+- **ネットワーク:** WSL2のIPへWindows側からは `localhost` でフォワーディング
+
+---
+
+## 12. テスト
+
+```bash
+docker compose exec backend pytest tests/ -v
+# 25テスト: API(9), 顧客管理(7), Geminiスキーマ(5), Shopifyパース(4)
+```
+
+---
+
+## 13. 将来の拡張ポイント
 
 ### RAG（検索拡張生成）
-キーワード検索だけでマッチしづらい場合、Shopifyの全商品データをベクトルDBに格納し、Geminiに「在庫リストの中から最も合うもの」を選ばせるRAGアプローチを導入する。
+Shopifyの全商品データをベクトルDBに格納し、Geminiに「在庫リストの中から最も合うもの」を選ばせるRAGアプローチ。
 
 ### 音声入力
-マイクからの音声リクエスト（例：「このデニムに合う服を探して」）をGeminiに渡し、画像+音声のマルチモーダル入力に対応する。
+マイクからの音声リクエストをGeminiに渡し、画像+音声のマルチモーダル入力に対応。
 
-### プロジェクションマッピング連携
-Mac Studio + TouchDesigner等で提案商品のビジュアルを壁面投影する空間演出機能。開発環境ではブラウザ上のプレビューで代替する。
+### google.genai 移行
+`google.generativeai` パッケージが deprecated のため、`google.genai` パッケージへの移行が必要。
+
+### CoreML モデル直接実行
+現在の Apple Vision Framework 方式に加え、coremltools で `.mlmodel` を直接ロードする方式も検討可能。
+FP16/Int8 量子化モデルを Neural Engine で実行することで、さらなる高速化が期待できる。

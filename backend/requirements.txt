@@ -1,8 +1,16 @@
 fastapi
 uvicorn
-google-generativeai
-requests
+google-genai
 python-dotenv
 pydantic
 python-multipart
-opencv-python
+Pillow
+opencv-python-headless
+mediapipe
+websockets
+pytest
+pytest-asyncio
+httpx
+# Apple Vision Framework (macOS only - Neural Engine segmentation)
+pyobjc-framework-Vision; sys_platform == "darwin"
+pyobjc-framework-Quartz; sys_platform == "darwin"

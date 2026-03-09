@@ -26,10 +26,16 @@ style: |
   }
 ---
 
+<!--
+_color: white
+-->
+
 # 85-Store AI店員システム 導入プロジェクト
 ## 富山県中小企業トランスフォーメーション補助金 活用企画
 
 **実施店舗:** 85-Store (富山県南砺市井波)
+
+![system bg](images/image.png)
 
 ---
 
@@ -108,7 +114,7 @@ style: |
 * **中核ハブ (Mac Studio):** カメラ認識、AI通信、API連携、プロジェクションマッピング映像生成・音響制御を一括処理する強力なコア。
 * **操作端末 (iPad):** お客様の手元で動作するリモートUI兼ストリーミング端末。好みの入力やAI提案の閲覧を行う。
 * **空間デバイス:** 超短焦点/高輝度プロジェクターと店舗用スピーカーシステム。
-* **ソフトウェア構成:** React (UI), Python/FastAPI (バックエンド), Gemini 2.5 Flash API (AI), Shopify Storefront API (在庫検索), Shopify Admin API (顧客管理・好みデータ), TouchDesigner等 (映像演出)
+* **ソフトウェア構成:** React (UI), Python/FastAPI (バックエンド), Gemini 3.1 Pro API (AI), Shopify Storefront API (在庫検索), Shopify Admin API (顧客管理・好みデータ), TouchDesigner等 (映像演出)
 
 ---
 

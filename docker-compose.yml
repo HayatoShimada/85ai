@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   backend:
     build:
@@ -9,14 +7,25 @@ services:
       - "8000:8000"
     volumes:
       - ./backend:/app
-    environment:
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - SHOPIFY_STORE_DOMAIN=${SHOPIFY_STORE_DOMAIN}
-      - SHOPIFY_ADMIN_API_ACCESS_TOKEN=${SHOPIFY_ADMIN_API_ACCESS_TOKEN}
-      - SHOPIFY_STOREFRONT_ACCESS_TOKEN=${SHOPIFY_STOREFRONT_ACCESS_TOKEN}
-    # .env ファイルがあれば読み込む
     env_file:
       - ./backend/.env
+    environment:
+      - MIRROR_CAMERA_INDEX=${MIRROR_CAMERA_INDEX:-0}
+      - MIRROR_WIDTH=${MIRROR_WIDTH:-1920}
+      - MIRROR_HEIGHT=${MIRROR_HEIGHT:-1080}
+      - MIRROR_FPS=${MIRROR_FPS:-30}
+      - MIRROR_SEG_WIDTH=${MIRROR_SEG_WIDTH:-640}
+      - MIRROR_WEBP_QUALITY=${MIRROR_WEBP_QUALITY:-80}
+      - MIRROR_MASK_BLUR=${MIRROR_MASK_BLUR:-7}
+      - MIRROR_MASK_THRESHOLD=${MIRROR_MASK_THRESHOLD:-0.5}
+      - MIRROR_SEGMENTER=${MIRROR_SEGMENTER:-auto}
+      - MIRROR_VISION_QUALITY=${MIRROR_VISION_QUALITY:-2}
+    # カメラをDocker内で使う場合 (Linux ネイティブのみ):
+    #   devices:
+    #     - /dev/video0:/dev/video0
+    #   group_add:
+    #     - video
+    # Mac Studio本番環境ではバックエンドをネイティブ実行推奨
 
   frontend:
     build:

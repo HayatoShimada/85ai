@@ -1,101 +1,112 @@
-# Vintage AI Shop Assistant (次世代古着屋AI店員デバイス)
+# 85-Store AI Shop Assistant
 
-実店舗（オフライン）とネットショップ（Shopify）のデータ、そして最新のAI（Gemini）を融合させた「次世代の古着屋体験」を提供するAI接客デバイスです。
+実店舗とShopifyのデータ、最新AI（Gemini 3.1 Pro）を融合した「次世代の古着屋体験」を提供するAI接客システムです。
 
 ## プロジェクト概要
 
-お客様がその日に着ている服をカメラで読み取り、AIがそれに合う「一点モノ」の古着をShopifyのリアルタイム在庫から提案します。
-Raspberry Pi等のデバイス上でキオスク端末として動作させることを想定して設計・開発されています。
+来店客の服装をカメラで撮影 → AIが解析 → Shopifyのリアルタイム在庫から相性の良い古着を提案します。
+
+### 本番構成
+- **Mac Studio (Apple Silicon)**: バックエンド実行 + USBカメラ（ミラー用、Neural Engine でリアルタイムセグメンテーション）
+- **iPad**: ブラウザベースの操作UI（タッチスクリーン）
+- **プロジェクター**: 演出画面を投影
+
+### 開発構成
+- **Ubuntu / WSL2**: Docker Composeで全機能を開発・テスト
 
 ## 主な機能
 
-1. **コーディネート解析**: デバイスのカメラでお客様の服装を撮影し、Gemini APIを用いて現在のコーディネートの特徴やスタイルを解析します。
-2. **アイテム提案**: 解析結果をもとに、今の服装に合うおすすめの古着の検索条件（キーワードやスタイル）をAIが推論します。
-3. **Shopifyリアルタイム連携**: 推論されたキーワードを用いてShopify Storefront APIを即座に叩き、**現在在庫がある**一点モノの古着の中から最適な商品を複数ピックアップして画面に提案します。
+1. **コーディネート解析** — カメラ撮影 or 画像アップロード → Gemini 3.1 Pro で服装を解析
+2. **パーソナライズ提案** — ユーザーの好みタグ（スタイル・年代感等）を加味した最大3パターンの提案
+3. **Shopifyリアルタイム連携** — Storefront API (GraphQL) で在庫がある商品のみを検索・表示
+4. **顧客管理** — Admin API で好みデータをメタフィールドに保存、リピーターの好み自動復元
+5. **ミラー演出** — USBカメラ + Apple Vision (Neural Engine) で人物切り抜き → 1920x1080@30fps でプロジェクターにリアルタイム投影
+6. **プロジェクション同期** — iPad操作とプロジェクター表示をWebSocketで別デバイス間同期
+7. **QRコード** — 各商品のShopify URLをQR表示 → スマホで読み取ってEC購入
+8. **音声読み上げ** — 解析結果をWeb Speech APIで日本語読み上げ
 
 ## 技術スタック
 
-デバイス側でのUI表示に特化したフロントエンドと、AI処理・EC検索処理を担うバックエンドのモダンな構成となっています。
+| レイヤー | 技術 |
+|----------|------|
+| バックエンド | FastAPI (Python 3.11+), Uvicorn |
+| AI解析 | Google Gemini 3.1 Pro (構造化JSON出力) |
+| 商品検索 | Shopify Storefront API (GraphQL, `2026-01`) |
+| 顧客管理 | Shopify Admin API (GraphQL, `2026-01`) |
+| 認証 | Client Credentials Grant + 自動トークン更新 |
+| ミラー | OpenCV + Apple Vision Framework (Neural Engine) / MediaPipe (フォールバック) |
+| フロントエンド | Next.js 16 (React 19), Tailwind CSS v4, Framer Motion |
+| コンテナ | Docker Compose |
+| テスト | pytest (25テスト) |
 
-### フロントエンド (`frontend/`)
-* **フレームワーク**: Next.js 16 (React 19)
-* **スタイリング**: Tailwind CSS v4
-* **UI/アニメーション**: Framer Motion, Lucide React
+## 起動方法
 
-### バックエンド (`backend/`)
-* **フレームワーク**: FastAPI (Python)
-* **AI・推論エンジン**: Google Gemini API (`gemini-2.5-flash`)
-* **EC・データ連携**: Shopify Storefront API (GraphQL)
-
-## Dockerを使用したテスト環境の構築 (推奨)
-
-Dockerを利用することで、バックエンドとフロントエンドの両方の環境を簡単に構築し、テストすることができます。
-
-### 前提条件
-- Docker および Docker Compose がインストールされていること
-
-### 起動手順
-
-1. `backend/` ディレクトリ内に `.env` ファイルを作成し、必要な環境変数（APIキーなど）を設定してください。（`.env.example` を参考にしてください）
-
-2. プロジェクトのルートディレクトリで以下のコマンドを実行し、コンテナをビルド・起動します。
+### Docker Compose（開発環境）
 
 ```bash
-docker-compose up -d --build
+# 1. 環境変数を設定
+cp backend/.env.example backend/.env
+# backend/.env を編集してAPIキー等を設定
+
+# 2. ビルド&起動
+docker compose up --build
+
+# フロントエンド: http://localhost:3000
+# バックエンドAPI: http://localhost:8000
+# プロジェクション: http://localhost:3000/projection
+# Swagger UI: http://localhost:8000/docs
 ```
 
-3. 起動が完了すると、以下のURLでアクセス可能になります。
-   * **フロントエンド**: `http://localhost:3000`
-   * **バックエンド (API/Swagger UI)**: `http://localhost:8000/docs`
-
-4. 終了する場合は、以下のコマンドを実行します。
+### ネイティブ起動（本番 / カメラ使用時）
 
 ```bash
-docker-compose down
-```
-
----
-
-## ローカル開発環境のセットアップ (Dockerを使用しない場合)
-
-### プロジェクト全体の準備
-
-事前にGemini APIのキーとShopify Storefront APIのアクセストークンを取得しておく必要があります。
-
-### バックエンドの起動
-
-1. `backend` ディレクトリに移動します。
-2. 必要なPythonパッケージをインストールします。
-3. `backend` フォルダ直下に `.env` ファイルを作成し、必要な環境変数（APIキーなど）を設定します。
-4. FastAPIサーバーを起動します。
-
-```bash
+# バックエンド（カメラ直接アクセスのためネイティブ実行推奨）
 cd backend
-# 仮想環境の作成とアクティベート (推奨)
-python -m venv venv
-source venv/bin/activate  # macOS/Linuxの場合
+pip install -r requirements.txt
+uvicorn main:app --host 0.0.0.0 --port 8000
 
-# 依存関係のインストール
-pip install fastapi uvicorn python-dotenv python-multipart
-# (その他gemini_service, shopify_service内で使用されているライブラリが必要に応じて追加されます)
-
-# 開発サーバーの起動
-uvicorn main:app --reload
-```
-APIサーバーはデフォルトで `http://localhost:8000` で稼働します。
-
-### フロントエンドの起動
-
-1. `frontend` ディレクトリに移動します。
-2. npmモジュールをインストールします。
-3. 開発サーバーを起動します。
-
-```bash
+# フロントエンド
 cd frontend
 npm install
 npm run dev
 ```
-フロントエンドは `http://localhost:3000` にアクセスして確認できます。
 
-## 設計ドキュメント
-全体のシステム構成、ハードウェアの構成案、およびRAG導入のような将来のステップについては `DESIGN.md` をご参照ください。
+### モックモード（APIキー不要）
+
+`backend/.env` で `MOCK_MODE=true` に設定すると、Gemini/Shopify APIなしで全フローの動作確認が可能です。
+
+## 環境変数
+
+`backend/.env` に設定（`backend/.env.example` 参照）:
+
+| 変数名 | 必須 | 説明 |
+|--------|------|------|
+| `MOCK_MODE` | - | `true` でモックモード |
+| `GEMINI_API_KEY` | 実API時 | Google AI Studio APIキー |
+| `SHOPIFY_STORE_URL` | 実API時 | `example.myshopify.com` |
+| `SHOPIFY_STOREFRONT_ACCESS_TOKEN` | 実API時 | Storefront API公開トークン |
+| `SHOPIFY_ADMIN_API_ACCESS_TOKEN` | 実API時 | Admin APIトークン (`shpat_`) |
+| `SHOPIFY_CLIENT_ID` | 自動更新時 | Shopify App クライアントID |
+| `SHOPIFY_CLIENT_SECRET` | 自動更新時 | Client Secret (`shpss_`) |
+| `NEXT_PUBLIC_API_URL` | 別デバイス時 | バックエンドURL (デフォルト: `http://localhost:8000`) |
+
+## テスト
+
+```bash
+docker compose exec backend pytest tests/ -v
+# 25テスト: API, 顧客管理, Geminiスキーマ, Shopifyパース
+```
+
+## ドキュメント
+
+| ファイル | 内容 |
+|----------|------|
+| [SPEC.md](SPEC.md) | 現状仕様書（API詳細、型定義、全サービス仕様） |
+| [DESIGN.md](DESIGN.md) | システム設計ドキュメント |
+| [PROJECTION_DESIGN.md](PROJECTION_DESIGN.md) | プロジェクション演出画面の設計 |
+| [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) | 6段階実装計画（全Phase完了） |
+
+## WSL2 固有の注意点
+
+- **カメラ**: WSL2からUSBカメラを使うには `usbipd-win` が必要。ブラウザカメラ（`getUserMedia`）は問題なく動作
+- **ミラーカメラ**: Docker内からホストカメラへのアクセスには `devices:` 設定が必要（Linuxのみ）。Mac StudioではバックエンドをネイティブBash実行推奨（Neural Engine + カメラアクセスのため）
