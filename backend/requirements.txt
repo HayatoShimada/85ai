@@ -12,3 +12,6 @@ websockets
 pytest
 pytest-asyncio
 httpx
+# Apple Vision Framework (macOS only - Neural Engine segmentation)
+pyobjc-framework-Vision; sys_platform == "darwin"
+pyobjc-framework-Quartz; sys_platform == "darwin"

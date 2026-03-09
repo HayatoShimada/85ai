@@ -471,7 +471,7 @@ function MirrorOverlay({ frame }: { frame: string | null }) {
   if (!frame) return null;
   return (
     <img
-      src={`data:image/png;base64,${frame}`}
+      src={`data:image/webp;base64,${frame}`}
       alt=""
       className="absolute inset-0 w-full h-full object-contain z-30 pointer-events-none"
     />

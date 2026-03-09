@@ -278,7 +278,7 @@ async def get_mirror_cameras():
     if is_mock_mode():
         return {"status": "ok", "cameras": [], "current": 0}
     cameras = list_cameras()
-    return {"status": "ok", "cameras": cameras, "current": mirror.camera_index}
+    return {"status": "ok", "cameras": cameras, "current": mirror.camera_index, "backend": mirror.backend}
 
 
 @app.post("/api/mirror/cameras/{index}")
