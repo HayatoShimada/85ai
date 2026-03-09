@@ -24,19 +24,23 @@ async def search_products_on_shopify(keywords: list[str]) -> dict:
         "X-Shopify-Storefront-Access-Token": access_token
     }
 
-    # キーワードをAND検索またはOR検索用のクエリ文字列に変換
+    # キーワードをスペース結合（Storefront search はフルテキスト検索）
     query_string = " ".join(keywords)
 
-    # GraphQLクエリ: 在庫がある (availableForSale: true) 商品を検索
+    # GraphQLクエリ
+    # NOTE: Storefront API の search では "AND available_for_sale:true" フィルタ構文は
+    #       使用不可（0件になる）。代わりに availableForSale フィールドで取得後フィルタする。
+    #       検索件数を多めに取得(10件)し、在庫ありのみを最大5件返す。
     graphql_query = """
     query SearchProducts($query: String!) {
-      search(query: $query, first: 5, types: PRODUCT) {
+      search(query: $query, first: 10, types: PRODUCT) {
         edges {
           node {
             ... on Product {
               id
               title
               description
+              handle
               availableForSale
               priceRange {
                 minVariantPrice {
@@ -44,10 +48,17 @@ async def search_products_on_shopify(keywords: list[str]) -> dict:
                   currencyCode
                 }
               }
-              images(first: 1) {
+              compareAtPriceRange {
+                minVariantPrice {
+                  amount
+                  currencyCode
+                }
+              }
+              images(first: 2) {
                 edges {
                   node {
                     url
+                    altText
                   }
                 }
               }
@@ -59,12 +70,10 @@ async def search_products_on_shopify(keywords: list[str]) -> dict:
     }
     """
 
-    search_query = f"{query_string} AND available_for_sale:true"
-
     payload = {
         "query": graphql_query,
         "variables": {
-            "query": search_query
+            "query": query_string
         }
     }
 
@@ -79,28 +88,44 @@ async def search_products_on_shopify(keywords: list[str]) -> dict:
         products = []
         for edge in edges:
             node = edge.get("node")
-            if node and node.get("availableForSale"):
-                # 画像URLの抽出
-                image_edges = node.get("images", {}).get("edges", [])
-                image_url = image_edges[0].get("node", {}).get("url") if image_edges else ""
+            if not node or not node.get("availableForSale"):
+                continue
+            if len(products) >= 5:
+                break
 
-                # 価格の抽出
-                price_info = node.get("priceRange", {}).get("minVariantPrice", {})
-                price = f"{price_info.get('amount')} {price_info.get('currencyCode')}"
+            # 画像URLの抽出（最大2枚）
+            image_edges = node.get("images", {}).get("edges", [])
+            image_url = image_edges[0].get("node", {}).get("url", "") if image_edges else ""
+            images = [
+                img.get("node", {}).get("url", "")
+                for img in image_edges
+                if img.get("node", {}).get("url")
+            ]
 
-                # 説明文の切り詰め（100文字以下ならそのまま）
-                desc = node.get("description", "")
-                if len(desc) > 100:
-                    desc = desc[:100] + "..."
+            # 価格の抽出
+            price_info = node.get("priceRange", {}).get("minVariantPrice", {})
+            price = f"{price_info.get('amount')} {price_info.get('currencyCode')}"
 
-                products.append({
-                    "id": node.get("id"),
-                    "title": node.get("title"),
-                    "description": desc,
-                    "price": price,
-                    "image_url": image_url,
-                    "url": node.get("onlineStoreUrl", "")
-                })
+            # 元値（セール判定用）
+            compare_info = node.get("compareAtPriceRange", {}).get("minVariantPrice", {})
+            compare_at_price = compare_info.get("amount", "0")
+
+            # 説明文の切り詰め（100文字以下ならそのまま）
+            desc = node.get("description", "")
+            if len(desc) > 100:
+                desc = desc[:100] + "..."
+
+            products.append({
+                "id": node.get("id"),
+                "title": node.get("title"),
+                "description": desc,
+                "handle": node.get("handle", ""),
+                "price": price,
+                "compare_at_price": compare_at_price,
+                "image_url": image_url,
+                "images": images,
+                "url": node.get("onlineStoreUrl", "")
+            })
 
         return {"status": "success", "products": products}
 
