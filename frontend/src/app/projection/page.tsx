@@ -413,14 +413,14 @@ function ResultScene({ payload }: { payload: ProjectionPayload }) {
                 </h4>
                 <p className="text-slate-300 text-base leading-relaxed mb-4">{pattern.reason}</p>
 
-                {/* 検索キーワード */}
-                <div className="flex flex-wrap gap-2 mb-5">
-                  {pattern.search_keywords?.map((kw: string, i: number) => (
-                    <span key={i} className="px-3 py-1 bg-slate-900 border border-emerald-500/30 text-emerald-300 rounded text-sm">
-                      #{kw}
+                {/* カテゴリ */}
+                {pattern.category && (
+                  <div className="flex flex-wrap gap-2 mb-5">
+                    <span className="px-3 py-1 bg-slate-900 border border-emerald-500/30 text-emerald-300 rounded text-sm">
+                      {pattern.category}
                     </span>
-                  ))}
-                </div>
+                  </div>
+                )}
 
                 {/* 商品リスト + QRコード */}
                 <div className="flex-1 flex flex-col gap-4">

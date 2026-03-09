@@ -5,7 +5,7 @@ import { AlertTriangle, Camera, Check, ChevronDown, Monitor, RefreshCcw, RotateC
 import { motion, AnimatePresence } from "framer-motion";
 import Image from "next/image";
 import QRCodeButton from "@/components/QRCode";
-import { type AppState, type ProjectionMessage } from "@/lib/projection-types";
+import { type AppState, type BodyMeasurements, type ProjectionMessage } from "@/lib/projection-types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -35,6 +35,11 @@ export default function Home() {
   const [customerLoading, setCustomerLoading] = useState(false);
   const [customerMessage, setCustomerMessage] = useState<string | null>(null);
 
+  // 体型情報
+  const [bodyMeasurements, setBodyMeasurements] = useState<BodyMeasurements>({
+    height: "", shoulder_width: "", chest: "", waist: "", weight: "",
+  });
+
   // 解析タイムアウト検知用
   const [analyzeTimedOut, setAnalyzeTimedOut] = useState(false);
   const analyzeTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -42,6 +47,9 @@ export default function Home() {
   const lastImageRef = useRef<{ blob: Blob; previewUrl: string } | null>(null);
   // 部分成功の警告メッセージ
   const [warningMsg, setWarningMsg] = useState<string | null>(null);
+  // 撮影カウントダウン
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const countdownRef = useRef<NodeJS.Timeout | null>(null);
 
   // 演出画面連携用 (WebSocket → バックエンド経由)
   const projectionWsRef = useRef<WebSocket | null>(null);
@@ -89,6 +97,15 @@ export default function Home() {
         if (data.customer.style_preferences?.length > 0) {
           setSelectedTags(data.customer.style_preferences);
         }
+        if (data.customer.body_measurements) {
+          setBodyMeasurements({
+            height: data.customer.body_measurements.height || "",
+            shoulder_width: data.customer.body_measurements.shoulder_width || "",
+            chest: data.customer.body_measurements.chest || "",
+            waist: data.customer.body_measurements.waist || "",
+            weight: data.customer.body_measurements.weight || "",
+          });
+        }
         setCustomerMessage("前回の好みを復元しました！");
       } else {
         setCustomerMessage("初めてのご来店ですね。好みを選んでください。");
@@ -100,6 +117,14 @@ export default function Home() {
     }
   };
 
+  // 体型情報のうち入力されたフィールドだけをオブジェクトとして返す
+  const getBodyMeasurementsPayload = () => {
+    const m = bodyMeasurements;
+    const hasValue = m.height || m.shoulder_width || m.chest || m.waist || m.weight;
+    if (!hasValue) return "";
+    return JSON.stringify(m);
+  };
+
   // 顧客登録してカメラへ遷移
   const registerAndProceed = async () => {
     // 顧客情報をバックエンドに保存
@@ -109,6 +134,10 @@ export default function Home() {
         formData.append("name", userName);
         formData.append("email", userEmail);
         formData.append("style_preferences", JSON.stringify(selectedTags));
+        const bmPayload = getBodyMeasurementsPayload();
+        if (bmPayload) {
+          formData.append("body_measurements", bmPayload);
+        }
         const res = await fetch(`${API_URL}/api/customers`, {
           method: "POST",
           body: formData,
@@ -235,6 +264,10 @@ export default function Home() {
     if (customerId) {
       formData.append("customer_id", customerId);
     }
+    const bmPayload = getBodyMeasurementsPayload();
+    if (bmPayload) {
+      formData.append("body_measurements", bmPayload);
+    }
 
     try {
       const controller = new AbortController();
@@ -287,8 +320,8 @@ export default function Home() {
     }
   };
 
-  // カメラ撮影→API送信（演出画面フラッシュ付き）
-  const captureAndAnalyze = async () => {
+  // 実際の撮影処理
+  const doCapture = async () => {
     if (!videoRef.current) return;
 
     // 演出画面を白くしてフラッシュ代わりにする（WebSocket経由）
@@ -320,6 +353,34 @@ export default function Home() {
     await sendImageToAPI(imageBlob, imageUrl);
   };
 
+  // カメラ撮影→5秒カウントダウン→撮影
+  const captureAndAnalyze = () => {
+    if (countdown !== null) return; // 既にカウントダウン中
+    let remaining = 5;
+    setCountdown(remaining);
+
+    countdownRef.current = setInterval(() => {
+      remaining -= 1;
+      if (remaining <= 0) {
+        if (countdownRef.current) clearInterval(countdownRef.current);
+        countdownRef.current = null;
+        setCountdown(null);
+        doCapture();
+      } else {
+        setCountdown(remaining);
+      }
+    }, 1000);
+  };
+
+  // カウントダウンキャンセル
+  const cancelCountdown = () => {
+    if (countdownRef.current) {
+      clearInterval(countdownRef.current);
+      countdownRef.current = null;
+    }
+    setCountdown(null);
+  };
+
   // ファイルアップロード→API送信
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -331,6 +392,7 @@ export default function Home() {
 
   // 最初に戻る処理
   const resetApp = () => {
+    cancelCountdown();
     stopCamera();
     setCapturedImage(null);
     setCapturedImageBase64(null);
@@ -409,6 +471,13 @@ export default function Home() {
       broadcastState(appState);
     }
   }, [analyzeTimedOut]);
+
+  // CAMERA_ACTIVE画面マウント時にストリームを接続
+  useEffect(() => {
+    if (appState === "CAMERA_ACTIVE" && videoRef.current && streamRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+    }
+  }, [appState]);
 
   // PREFERENCE画面に入った時にカメラデバイスとミラーカメラを列挙
   useEffect(() => {
@@ -533,6 +602,36 @@ export default function Home() {
               )}
             </div>
 
+            {/* 体型情報入力 */}
+            <div className="w-full bg-slate-800/60 rounded-2xl p-6 border border-slate-700 space-y-4">
+              <div className="flex items-center space-x-2 text-slate-300 mb-2">
+                <span className="text-lg">📏</span>
+                <span className="font-medium">体型情報</span>
+                <span className="text-xs text-slate-500">（任意・サイズ提案の精度が向上します）</span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                {([
+                  ["height", "身長 (cm)"],
+                  ["shoulder_width", "肩幅 (cm)"],
+                  ["chest", "胸囲 (cm)"],
+                  ["waist", "ウエスト (cm)"],
+                  ["weight", "体重 (kg)"],
+                ] as [keyof BodyMeasurements, string][]).map(([key, label]) => (
+                  <div key={key}>
+                    <label className="text-xs text-slate-500 mb-1 block">{label}</label>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      placeholder="-"
+                      value={bodyMeasurements[key]}
+                      onChange={(e) => setBodyMeasurements((prev) => ({ ...prev, [key]: e.target.value }))}
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-xl text-slate-200 placeholder-slate-600 focus:outline-none focus:border-emerald-500 transition-colors text-center"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+
             {/* スタイルタグ選択 */}
             <div className="w-full bg-slate-800/60 rounded-2xl p-6 border border-slate-700 space-y-5">
               {Object.entries(STYLE_TAGS).map(([category, tags]) => (
@@ -644,6 +743,10 @@ export default function Home() {
                     formData.append("name", userName);
                     formData.append("email", userEmail);
                     formData.append("style_preferences", JSON.stringify(selectedTags));
+                    const bmPayload = getBodyMeasurementsPayload();
+                    if (bmPayload) {
+                      formData.append("body_measurements", bmPayload);
+                    }
                     fetch(`${API_URL}/api/customers`, { method: "POST", body: formData }).catch(() => {});
                   }
                   fileInputRef.current?.click();
@@ -696,7 +799,12 @@ export default function Home() {
 
             <div className="relative w-full aspect-[4/3] sm:aspect-video rounded-3xl overflow-hidden bg-slate-800 border-4 border-slate-700 shadow-2xl">
               <video
-                ref={videoRef}
+                ref={(el) => {
+                  videoRef.current = el;
+                  if (el && streamRef.current) {
+                    el.srcObject = streamRef.current;
+                  }
+                }}
                 autoPlay
                 playsInline
                 muted
@@ -704,23 +812,45 @@ export default function Home() {
               />
               {/* ガイド枠 */}
               <div className="absolute inset-0 border-2 border-emerald-500/50 m-8 sm:m-16 rounded-2xl pointer-events-none border-dashed" />
+              {/* カウントダウン表示 */}
+              {countdown !== null && (
+                <motion.div
+                  key={countdown}
+                  initial={{ scale: 2, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  exit={{ scale: 0.5, opacity: 0 }}
+                  className="absolute inset-0 flex items-center justify-center pointer-events-none"
+                >
+                  <span className="text-[120px] sm:text-[180px] font-black text-white drop-shadow-[0_0_40px_rgba(16,185,129,0.8)]">
+                    {countdown}
+                  </span>
+                </motion.div>
+              )}
             </div>
 
             <div className="flex items-center space-x-4">
               <button
-                onClick={() => { stopCamera(); setAppState("PREFERENCE"); }}
+                onClick={() => { cancelCountdown(); stopCamera(); setAppState("PREFERENCE"); }}
                 className="p-4 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
               >
                 戻る
               </button>
 
               <button
-                onClick={captureAndAnalyze}
-                className="w-20 h-20 bg-emerald-500 rounded-full flex items-center justify-center border-4 border-emerald-900 hover:bg-emerald-400 hover:scale-105 transition-all shadow-[0_0_20px_rgba(16,185,129,0.5)]"
+                onClick={countdown !== null ? cancelCountdown : captureAndAnalyze}
+                className={`w-20 h-20 rounded-full flex items-center justify-center border-4 transition-all shadow-[0_0_20px_rgba(16,185,129,0.5)] ${
+                  countdown !== null
+                    ? "bg-red-500 border-red-900 hover:bg-red-400"
+                    : "bg-emerald-500 border-emerald-900 hover:bg-emerald-400 hover:scale-105"
+                }`}
               >
-                <div className="w-14 h-14 bg-white rounded-full flex items-center justify-center">
-                  <div className="w-4 h-4 rounded-full bg-red-500 animate-pulse" />
-                </div>
+                {countdown !== null ? (
+                  <span className="text-white text-2xl font-black">Stop</span>
+                ) : (
+                  <div className="w-14 h-14 bg-white rounded-full flex items-center justify-center">
+                    <div className="w-4 h-4 rounded-full bg-red-500 animate-pulse" />
+                  </div>
+                )}
               </button>
 
               {/* カメラ切り替えボタン (複数カメラがある場合のみ表示) */}
@@ -891,13 +1021,13 @@ export default function Home() {
                     <div className="w-full space-y-3 mb-6">
                       <h4 className="text-xl font-bold text-emerald-400 border-b border-emerald-500/30 pb-2">{rec.title}</h4>
                       <p className="text-slate-300 text-sm leading-relaxed">{rec.reason}</p>
-                      <div className="flex flex-wrap gap-2 pt-2">
-                        {rec.search_keywords?.map((kw: string, i: number) => (
-                          <span key={i} className="px-2 py-1 bg-slate-900 border border-emerald-500/30 text-emerald-300 rounded-md text-xs font-medium">
-                            #{kw}
+                      {rec.category && (
+                        <div className="flex flex-wrap gap-2 pt-2">
+                          <span className="px-2 py-1 bg-slate-900 border border-emerald-500/30 text-emerald-300 rounded-md text-xs font-medium">
+                            {rec.category}
                           </span>
-                        ))}
-                      </div>
+                        </div>
+                      )}
                     </div>
 
                     <div className="w-full flex-1 flex flex-col gap-4">

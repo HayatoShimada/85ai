@@ -34,7 +34,7 @@ class ProjectionManager:
             self._current_state = data
             await self._broadcast_json(data)
             state = data.get("state", "")
-            if state in ("CAMERA_ACTIVE", "ANALYZING"):
+            if state in ("IDLE", "PREFERENCE", "CAMERA_ACTIVE", "ANALYZING"):
                 if not self._mirror_active and self.displays:
                     self._start_mirror()
             else:

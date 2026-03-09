@@ -58,7 +58,7 @@ class AppleVisionSegmenter:
         self._quality = quality
 
         # セグメンテーションリクエストを作成
-        self._request = Vision.VNGeneratePersonSegmentationRequest.alloc().init()
+        self._request = Vision.VNGeneratePersonSegmentationRequest.alloc().initWithCompletionHandler_(None)
         self._request.setQualityLevel_(quality)
 
         # 出力フォーマット: 8bit グレースケール (kCVPixelFormatType_OneComponent8)

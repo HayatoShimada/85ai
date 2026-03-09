@@ -44,7 +44,10 @@ async def search_customer_by_email(email: str) -> dict | None:
             firstName
             lastName
             email
-            metafield(namespace: "custom", key: "style_preferences") {
+            stylePreferences: metafield(namespace: "custom", key: "style_preferences") {
+              value
+            }
+            bodyMeasurements: metafield(namespace: "custom", key: "body_measurements") {
               value
             }
           }
@@ -69,23 +72,26 @@ async def search_customer_by_email(email: str) -> dict | None:
             return None
 
         node = edges[0]["node"]
-        metafield = node.get("metafield")
-        preferences = json.loads(metafield["value"]) if metafield and metafield.get("value") else []
+        style_mf = node.get("stylePreferences")
+        preferences = json.loads(style_mf["value"]) if style_mf and style_mf.get("value") else []
+        body_mf = node.get("bodyMeasurements")
+        body_measurements = json.loads(body_mf["value"]) if body_mf and body_mf.get("value") else None
 
         return {
             "id": node["id"],
             "name": f"{node.get('firstName') or ''} {node.get('lastName') or ''}".strip(),
             "email": node["email"],
             "style_preferences": preferences,
+            "body_measurements": body_measurements,
         }
     except Exception as e:
         logger.error(f"Customer search error: {e}")
         return None
 
 
-async def create_customer(name: str, email: str, preferences: list[str]) -> dict | None:
+async def create_customer(name: str, email: str, preferences: list[str], body_measurements: dict | None = None) -> dict | None:
     """
-    新規顧客を作成し、好みタグをメタフィールドに保存する
+    新規顧客を作成し、好みタグと体型情報をメタフィールドに保存する
     """
     endpoint, headers, configured = await _get_admin_api_config()
     if not configured:
@@ -114,18 +120,27 @@ async def create_customer(name: str, email: str, preferences: list[str]) -> dict
     }
     """
 
+    metafields = [
+        {
+            "namespace": "custom",
+            "key": "style_preferences",
+            "type": "json",
+            "value": json.dumps(preferences, ensure_ascii=False),
+        }
+    ]
+    if body_measurements:
+        metafields.append({
+            "namespace": "custom",
+            "key": "body_measurements",
+            "type": "json",
+            "value": json.dumps(body_measurements, ensure_ascii=False),
+        })
+
     customer_input = {
         "firstName": first_name,
         "lastName": last_name,
         "email": email,
-        "metafields": [
-            {
-                "namespace": "custom",
-                "key": "style_preferences",
-                "type": "json",
-                "value": json.dumps(preferences, ensure_ascii=False),
-            }
-        ],
+        "metafields": metafields,
     }
 
     payload = {
@@ -151,6 +166,7 @@ async def create_customer(name: str, email: str, preferences: list[str]) -> dict
             "name": f"{customer.get('firstName') or ''} {customer.get('lastName') or ''}".strip(),
             "email": customer["email"],
             "style_preferences": preferences,
+            "body_measurements": body_measurements,
             "is_new": True,
         }
     except Exception as e:
@@ -158,9 +174,9 @@ async def create_customer(name: str, email: str, preferences: list[str]) -> dict
         return None
 
 
-async def update_customer_preferences(customer_id: str, preferences: list[str]) -> dict | None:
+async def update_customer_preferences(customer_id: str, preferences: list[str], body_measurements: dict | None = None) -> dict | None:
     """
-    既存顧客の好みタグを更新する
+    既存顧客の好みタグと体型情報を更新する
     """
     endpoint, headers, configured = await _get_admin_api_config()
     if not configured:
@@ -184,16 +200,25 @@ async def update_customer_preferences(customer_id: str, preferences: list[str]) 
     }
     """
 
+    metafields = [
+        {
+            "namespace": "custom",
+            "key": "style_preferences",
+            "type": "json",
+            "value": json.dumps(preferences, ensure_ascii=False),
+        }
+    ]
+    if body_measurements:
+        metafields.append({
+            "namespace": "custom",
+            "key": "body_measurements",
+            "type": "json",
+            "value": json.dumps(body_measurements, ensure_ascii=False),
+        })
+
     customer_input = {
         "id": customer_id,
-        "metafields": [
-            {
-                "namespace": "custom",
-                "key": "style_preferences",
-                "type": "json",
-                "value": json.dumps(preferences, ensure_ascii=False),
-            }
-        ],
+        "metafields": metafields,
     }
 
     payload = {
@@ -219,6 +244,7 @@ async def update_customer_preferences(customer_id: str, preferences: list[str]) 
             "name": f"{customer.get('firstName') or ''} {customer.get('lastName') or ''}".strip(),
             "email": customer["email"],
             "style_preferences": preferences,
+            "body_measurements": body_measurements,
             "is_new": False,
         }
     except Exception as e:

@@ -1,5 +1,13 @@
 export type AppState = "IDLE" | "PREFERENCE" | "CAMERA_ACTIVE" | "ANALYZING" | "RESULT";
 
+export type BodyMeasurements = {
+  height: string;
+  shoulder_width: string;
+  chest: string;
+  waist: string;
+  weight: string;
+};
+
 export type ShopifyProduct = {
   id: string;
   title: string;
@@ -12,7 +20,7 @@ export type ShopifyProduct = {
 export type RecommendationPattern = {
   title: string;
   reason: string;
-  search_keywords: string[];
+  product_ids: number[];
   category: string;
   shopify_products: ShopifyProduct[];
 };

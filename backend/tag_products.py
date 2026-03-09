@@ -1,21 +1,20 @@
 """
-Shopify商品の自動タグ付けスクリプト
+Shopify商品メタデータ正規化スクリプト (バッチ処理版)
 
-Admin API で全商品を取得し、Gemini に画像+説明文を送って
-productType と tags を自動生成・更新する。
+- productType を productCategory.name に統一
+- tags を Gemini でバッチ生成
+- カスタムメタフィールド (brand, style, era, features) を設定
 
 使い方:
-  # ドライラン (変更を表示するだけ)
-  python tag_products.py
+  python3 tag_products.py                # ドライラン (未処理の商品のみ)
+  python3 tag_products.py --apply        # 実際に更新 (未処理の商品のみ)
+  python3 tag_products.py --apply --id gid://shopify/Product/xxx  # 特定商品
+  python3 tag_products.py --apply --force          # 全商品再処理 (処理済みも含む)
+  python3 tag_products.py --apply --with-images    # 画像込み (遅い)
+  python3 tag_products.py --batch-size 5           # バッチサイズ変更
 
-  # 実際に更新
-  python tag_products.py --apply
-
-  # 特定商品だけ (商品ID指定)
-  python tag_products.py --apply --id gid://shopify/Product/8115713736819
-
-  # 既にタグ済み(USEDのみでない)の商品もやり直す
-  python tag_products.py --apply --force
+処理済み判定: custom:tagged_at メタフィールドの有無で判断。
+新商品追加後は --apply だけで未処理商品のみ処理される。
 """
 
 import os
@@ -24,6 +23,7 @@ import json
 import time
 import argparse
 import io
+from datetime import datetime, timezone
 import httpx
 from google import genai
 from google.genai import types
@@ -36,20 +36,69 @@ load_dotenv()
 # --- 設定 ---
 ADMIN_API_VERSION = "2026-01"
 GEMINI_MODEL = "gemini-2.5-flash"
-RATE_LIMIT_DELAY = 2  # Gemini API 間隔 (秒)
+RATE_LIMIT_DELAY = 2
+DEFAULT_BATCH_SIZE = 10
+
+# --- タグ生成用カテゴリ定義 ---
+TAG_TAXONOMY = """
+## tags用カテゴリ (複数選択可、該当するもの全て付与)
+
+### 詳細カテゴリ
+長袖シャツ, 半袖シャツ, ボタンダウン, バンドカラー, オープンカラー, ネルシャツ,
+ドレスシャツ, ワークシャツ, ウエスタンシャツ, アロハシャツ, ラガーシャツ,
+クルーネック, Vネック, タートルネック, モックネック, ヘンリーネック,
+テーラードジャケット, ブレザー, ライダース, MA-1, M-65, コーチジャケット,
+トレンチコート, ステンカラーコート, ダッフルコート, ピーコート,
+チノパン, カーゴパンツ, スラックス, ジョガーパンツ, ワイドパンツ
+
+### 素材 (日本語+英語の両方)
+コットン, Cotton, ウール, Wool, リネン, Linen, ナイロン, Nylon,
+ポリエステル, Polyester, フランネル, Flannel, デニム, Denim,
+レザー, Leather, スウェード, Suede, フリース, Fleece,
+コーデュロイ, Corduroy, ツイード, Tweed, シルク, Silk,
+レーヨン, Rayon, ベロア, Velour, ゴアテックス, Gore-Tex
+
+### スタイル
+カジュアル, ワーク, ミリタリー, アウトドア, ストリート, ドレス,
+クラシック, モード, アメカジ, プレッピー, スポーティ, ナチュラル,
+きれいめ, ロック, グランジ, ノームコア
+
+### 色
+ブラック, ホワイト, グレー, ネイビー, ブルー, レッド, グリーン,
+ブラウン, ベージュ, カーキ, オリーブ, バーガンディ, イエロー,
+オレンジ, ピンク, パープル, マルチカラー
+
+### 柄
+無地, チェック柄, ストライプ, ボーダー, ドット, 花柄,
+カモフラ柄, ペイズリー, アーガイル, ヘリンボーン, 総柄
+
+### 年代
+60s, 70s, 80s, 90s, Y2K, ヴィンテージ, レトロ, ミリタリーサープラス
+
+### 特徴
+オーバーサイズ, ビッグシルエット, スリムフィット, レギュラーフィット,
+ヘビーウェイト, ライトウェイト, 裏起毛, 中綿入り, ライナー付き,
+ダブルブレスト, シングルブレスト, ジップアップ
+"""
 
 
 # --- Gemini スキーマ ---
-class ProductTags(BaseModel):
-    product_type: str = Field(description="商品カテゴリ (例: シャツ, ジャケット, ニット, パンツ, ベスト, コート)")
-    category_tags: list[str] = Field(description="カテゴリタグ (例: シャツ, 長袖シャツ, ボタンダウンシャツ)")
-    material_tags: list[str] = Field(description="素材タグ (例: コットン, フランネル, ナイロン, ウール, リネン, フリース)")
-    style_tags: list[str] = Field(description="スタイルタグ (例: カジュアル, ワーク, ミリタリー, アウトドア, ドレス, ストリート, クラシック)")
-    color_tags: list[str] = Field(description="色タグ (例: ブルー, ネイビー, ブラック, チェック柄, ストライプ)")
+class ProductTagsItem(BaseModel):
+    """1商品分のタグ情報"""
+    product_index: int = Field(description="商品の番号 (0始まり)")
+    category_tags: list[str] = Field(description="詳細カテゴリタグ")
+    material_tags: list[str] = Field(description="素材タグ (日本語+英語)")
+    style_tags: list[str] = Field(description="スタイルタグ")
+    color_tags: list[str] = Field(description="色・柄タグ")
     brand: str = Field(description="ブランド名 (不明なら空文字)")
-    era_tags: list[str] = Field(description="年代・時代タグ (例: 90s, ヴィンテージ, ミリタリーサープラス)")
-    feature_tags: list[str] = Field(description="特徴タグ (例: オーバーサイズ, ヘビーウェイト, ゴアテックス, 裏起毛)")
-    size_info: str = Field(description="サイズ情報 (例: L, XL, フリーサイズ。説明文から判読)")
+    era_tags: list[str] = Field(description="年代・時代タグ")
+    feature_tags: list[str] = Field(description="特徴タグ")
+    size_info: str = Field(description="サイズ情報 (S/M/L/XL/XXL等。不明なら空文字)")
+
+
+class BatchProductTags(BaseModel):
+    """バッチ処理結果"""
+    products: list[ProductTagsItem] = Field(description="各商品のタグ情報")
 
 
 # --- Shopify Admin API ---
@@ -69,7 +118,6 @@ def fetch_all_products(endpoint, headers):
     """ページネーションで全商品を取得"""
     products = []
     cursor = None
-
     while True:
         after = f', after: "{cursor}"' if cursor else ""
         query = f"""
@@ -84,6 +132,9 @@ def fetch_all_products(endpoint, headers):
                 productType
                 tags
                 status
+                productCategory {{
+                  productTaxonomyNode {{ id name fullName }}
+                }}
                 variants(first: 10) {{
                   edges {{
                     node {{
@@ -95,12 +146,11 @@ def fetch_all_products(endpoint, headers):
                 }}
                 images(first: 5) {{
                   edges {{
-                    node {{
-                      url
-                      width
-                      height
-                    }}
+                    node {{ url width height }}
                   }}
+                }}
+                taggedAt: metafield(namespace: "custom", key: "tagged_at") {{
+                  value
                 }}
               }}
             }}
@@ -112,24 +162,20 @@ def fetch_all_products(endpoint, headers):
             r = client.post(endpoint, headers=headers, json={"query": query})
         r.raise_for_status()
         data = r.json()
-
         if "errors" in data:
             print(f"GraphQL errors: {data['errors']}")
             break
-
         edges = data["data"]["products"]["edges"]
         products.extend([e["node"] for e in edges])
-
         page_info = data["data"]["products"]["pageInfo"]
         if not page_info["hasNextPage"]:
             break
         cursor = page_info["endCursor"]
-
     return products
 
 
-def update_product_tags(endpoint, headers, product_id, product_type, tags):
-    """商品のproductTypeとtagsを更新"""
+def update_product_full(endpoint, headers, product_id, product_type, tags, metafields):
+    """商品の productType, tags, metafields を一括更新"""
     mutation = """
     mutation UpdateProduct($input: ProductInput!) {
       productUpdate(input: $input) {
@@ -138,121 +184,204 @@ def update_product_tags(endpoint, headers, product_id, product_type, tags):
       }
     }
     """
-    payload = {
-        "query": mutation,
-        "variables": {
-            "input": {
-                "id": product_id,
-                "productType": product_type,
-                "tags": tags,
-            }
-        },
+    input_data = {
+        "id": product_id,
+        "productType": product_type,
+        "tags": tags,
+        "metafields": metafields,
     }
+    payload = {"query": mutation, "variables": {"input": input_data}}
     with httpx.Client(timeout=15) as client:
         r = client.post(endpoint, headers=headers, json=payload)
     r.raise_for_status()
     data = r.json()
-
     errors = data.get("data", {}).get("productUpdate", {}).get("userErrors", [])
     if errors:
-        print(f"  ❌ 更新エラー: {errors}")
+        print(f"    ❌ 更新エラー: {errors}")
         return False
     return True
 
 
-# --- Gemini 解析 ---
-def analyze_product_with_gemini(client, product):
-    """商品情報をGeminiに送ってタグを生成"""
+# --- Gemini バッチ解析 ---
+def format_product_info(index, product):
     title = product["title"]
-    description = product["description"] or ""
+    description = product["description"] or "(説明なし)"
+    category = ""
+    if product.get("productCategory"):
+        node = product["productCategory"]["productTaxonomyNode"]
+        category = f"Shopifyカテゴリ: {node['fullName']}"
     variants = product["variants"]["edges"]
     variant_info = ""
     for v in variants:
         vn = v["node"]
         opts = ", ".join([f'{o["name"]}:{o["value"]}' for o in vn["selectedOptions"]])
-        variant_info += f"  {vn['title']} (¥{vn['price']}) [{opts}]\n"
+        variant_info += f"    {vn['title']} (¥{vn['price']}) [{opts}]\n"
+    return f"""--- 商品 {index} ---
+商品名: {title}
+{category}
+説明文: {description}
+バリエーション:
+{variant_info}"""
 
-    # 画像をダウンロード (最大2枚、リサイズして軽量化)
-    images = []
-    image_edges = product["images"]["edges"]
-    for img_edge in image_edges[:2]:
-        img_url = img_edge["node"]["url"]
-        try:
-            with httpx.Client(timeout=15) as http:
-                resp = http.get(img_url)
-            resp.raise_for_status()
-            img = Image.open(io.BytesIO(resp.content))
-            img.thumbnail((800, 800))
-            images.append(img)
-        except Exception as e:
-            print(f"  ⚠ 画像取得失敗: {e}")
 
-    prompt = f"""以下の古着商品の情報を分析し、Shopify検索用のタグを日本語と英語の両方で生成してください。
+def download_images_for_batch(products, max_images_per_product=1):
+    all_images = []
+    for product in products:
+        image_edges = product["images"]["edges"]
+        for img_edge in image_edges[:max_images_per_product]:
+            try:
+                with httpx.Client(timeout=15) as http:
+                    resp = http.get(img_edge["node"]["url"])
+                resp.raise_for_status()
+                img = Image.open(io.BytesIO(resp.content))
+                img.thumbnail((600, 600))
+                all_images.append(img)
+            except Exception as e:
+                print(f"  ⚠ 画像取得失敗: {e}")
+    return all_images
 
-【商品名】
-{title}
 
-【説明文】
-{description}
+def analyze_batch_with_gemini(client, products, with_images=False):
+    product_texts = []
+    for i, product in enumerate(products):
+        product_texts.append(format_product_info(i, product))
+    products_block = "\n".join(product_texts)
 
-【バリエーション】
-{variant_info}
+    prompt = f"""あなたは古着・ヴィンテージ衣料品の専門家です。
+以下の{len(products)}件の商品情報を分析し、各商品に対してShopify検索・AI提案用のタグを生成してください。
 
-タグの生成ルール:
-- カテゴリ: 商品の種類 (シャツ, ジャケット, ニット, パンツ, ベスト, コート 等)
-- 素材: 説明文や画像から判断 (コットン, フランネル, ウール, ナイロン, リネン 等)
-- スタイル: 服のスタイル (カジュアル, ワーク, ミリタリー, アウトドア, ドレス 等)
-- 色・柄: 画像と説明文から判断 (ブルー, チェック柄, 無地 等)
-- ブランド: 商品名や説明文から判別
-- 年代: 古着の年代感 (90s, ヴィンテージ 等)
-- 特徴: 特筆すべき特徴 (オーバーサイズ, ヘビーウェイト, ゴアテックス 等)
-- サイズ: 説明文からサイズ情報を読み取る
+{TAG_TAXONOMY}
 
-product_type には日本語のメインカテゴリを1つだけ入れてください。
-タグは日本語を基本とし、ブランド名や素材名は英語も含めてください。
+## 入力商品データ
+
+{products_block}
+
+## ルール
+1. タグは上記リストを優先的に使い、リストにないものは必要に応じて追加OK。
+2. ブランド名は商品名の【】や[]内から抽出。英語のまま。
+3. サイズは説明文やバリエーションから判読。S/M/L/XL/XXL等の標準表記。
+4. 素材タグは日本語と英語の両方を含める (例: コットン, Cotton)。
+5. 色・柄は商品名・説明文・Shopifyカテゴリから推測。
+6. product_index は 0 始まりで各商品に対応させてください。
+7. 全{len(products)}件分の結果を漏れなく返してください。
 """
-
-    contents = [prompt] + images
-
+    contents = [prompt]
+    if with_images:
+        images = download_images_for_batch(products)
+        if images:
+            contents.extend(images)
     try:
         response = client.models.generate_content(
             model=GEMINI_MODEL,
             contents=contents,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
-                response_schema=ProductTags,
+                response_schema=BatchProductTags,
             ),
         )
-        return ProductTags.model_validate_json(response.text)
+        result = BatchProductTags.model_validate_json(response.text)
+        return result.products
     except Exception as e:
-        print(f"  ❌ Gemini エラー: {e}")
+        print(f"  ❌ Gemini バッチエラー: {e}")
         return None
+
+
+def get_product_type_from_category(product):
+    if product.get("productCategory"):
+        return product["productCategory"]["productTaxonomyNode"]["name"]
+    return ""
+
+
+def build_tags(result, existing_tags):
+    base_tags = []
+    if "USED" in existing_tags:
+        base_tags.append("USED")
+    if "NEW" in existing_tags:
+        base_tags.append("NEW")
+    all_tags = list(base_tags)
+    all_tags.extend(result.category_tags)
+    all_tags.extend(result.material_tags)
+    all_tags.extend(result.style_tags)
+    all_tags.extend(result.color_tags)
+    all_tags.extend(result.era_tags)
+    all_tags.extend(result.feature_tags)
+    if result.brand:
+        all_tags.append(result.brand)
+    if result.size_info:
+        all_tags.append(result.size_info)
+    seen = set()
+    unique_tags = []
+    for tag in all_tags:
+        tag_lower = tag.strip().lower()
+        if tag_lower and tag_lower not in seen:
+            seen.add(tag_lower)
+            unique_tags.append(tag.strip())
+    return unique_tags
+
+
+def build_metafields(result):
+    """Gemini結果からカスタムメタフィールドを構築"""
+    metafields = []
+    if result.brand:
+        metafields.append({
+            "namespace": "custom",
+            "key": "brand",
+            "type": "single_line_text_field",
+            "value": result.brand,
+        })
+    if result.style_tags:
+        metafields.append({
+            "namespace": "custom",
+            "key": "style",
+            "type": "json",
+            "value": json.dumps(result.style_tags, ensure_ascii=False),
+        })
+    era = result.era_tags[0] if result.era_tags else ""
+    if era:
+        metafields.append({
+            "namespace": "custom",
+            "key": "era",
+            "type": "single_line_text_field",
+            "value": era,
+        })
+    if result.feature_tags:
+        metafields.append({
+            "namespace": "custom",
+            "key": "features",
+            "type": "json",
+            "value": json.dumps(result.feature_tags, ensure_ascii=False),
+        })
+    # 処理済みタイムスタンプ
+    metafields.append({
+        "namespace": "custom",
+        "key": "tagged_at",
+        "type": "single_line_text_field",
+        "value": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    })
+    return metafields
 
 
 # --- メイン ---
 def main():
-    parser = argparse.ArgumentParser(description="Shopify商品の自動タグ付け")
-    parser.add_argument("--apply", action="store_true", help="実際にShopifyを更新する (省略時はドライラン)")
-    parser.add_argument("--id", type=str, help="特定の商品IDだけ処理する")
-    parser.add_argument("--force", action="store_true", help="既にタグ済みの商品も再処理する")
+    parser = argparse.ArgumentParser(description="Shopify商品メタデータ正規化 (バッチ処理)")
+    parser.add_argument("--apply", action="store_true", help="実際にShopifyを更新")
+    parser.add_argument("--id", type=str, help="特定の商品IDだけ処理")
+    parser.add_argument("--force", action="store_true", help="既にタグ済みの商品も再処理")
+    parser.add_argument("--with-images", action="store_true", help="画像も含めて解析")
+    parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
     args = parser.parse_args()
 
-    # Gemini 初期化
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         print("ERROR: GEMINI_API_KEY が未設定")
         sys.exit(1)
     gemini_client = genai.Client(api_key=api_key)
-
-    # Shopify 設定
     endpoint, headers = get_shopify_config()
 
-    # 商品取得
     print("📦 商品を取得中...")
     products = fetch_all_products(endpoint, headers)
     print(f"   {len(products)}件の商品を取得\n")
 
-    # フィルタ
     if args.id:
         products = [p for p in products if p["id"] == args.id]
         if not products:
@@ -260,73 +389,86 @@ def main():
             sys.exit(1)
 
     if not args.force:
-        # tags が ['USED'] のみ or 空 の商品だけ処理
-        products = [p for p in products if set(p["tags"]) <= {"USED"}]
-        print(f"   タグ未設定の商品: {len(products)}件\n")
+        total_before = len(products)
+        products = [p for p in products if not p.get("taggedAt")]
+        skipped = total_before - len(products)
+        print(f"   未処理の商品: {len(products)}件 (処理済みスキップ: {skipped}件)\n")
 
     if not products:
         print("✅ 処理対象の商品がありません")
         return
 
     mode = "🔧 更新モード" if args.apply else "👀 ドライラン (--apply で実際に更新)"
-    print(f"   {mode}\n")
+    img_mode = "📷 画像あり" if args.with_images else "📝 テキストのみ"
+    batch_count = (len(products) + args.batch_size - 1) // args.batch_size
+    print(f"   {mode}")
+    print(f"   {img_mode}")
+    print(f"   バッチサイズ: {args.batch_size}件 × {batch_count}バッチ\n")
     print("=" * 70)
 
     success = 0
     errors = 0
+    start_time = time.time()
 
-    for i, product in enumerate(products):
-        title = product["title"]
-        print(f"\n[{i+1}/{len(products)}] {title}")
-        print(f"  現在: type='{product['productType']}' tags={product['tags']}")
+    for batch_idx in range(0, len(products), args.batch_size):
+        batch = products[batch_idx:batch_idx + args.batch_size]
+        batch_num = batch_idx // args.batch_size + 1
+        print(f"\n📋 バッチ {batch_num}/{batch_count} ({len(batch)}件)")
+        print("-" * 70)
 
-        # Gemini 解析
-        result = analyze_product_with_gemini(gemini_client, product)
-        if not result:
-            errors += 1
+        for i, p in enumerate(batch):
+            cat_name = get_product_type_from_category(p)
+            print(f"  [{batch_idx + i + 1}] {p['title']}  [{cat_name}]")
+
+        print(f"\n  🤖 Gemini 解析中...")
+        results = analyze_batch_with_gemini(
+            gemini_client, batch, with_images=args.with_images
+        )
+        if not results:
+            errors += len(batch)
+            print(f"  ❌ バッチ全体がエラー")
             continue
 
-        # タグをフラットに結合 (USED は常に保持)
-        all_tags = ["USED"]
-        all_tags.extend(result.category_tags)
-        all_tags.extend(result.material_tags)
-        all_tags.extend(result.style_tags)
-        all_tags.extend(result.color_tags)
-        all_tags.extend(result.era_tags)
-        all_tags.extend(result.feature_tags)
-        if result.brand:
-            all_tags.append(result.brand)
-        if result.size_info:
-            all_tags.append(result.size_info)
-        # 重複排除 (順序保持)
-        seen = set()
-        unique_tags = []
-        for tag in all_tags:
-            tag_lower = tag.lower()
-            if tag_lower not in seen:
-                seen.add(tag_lower)
-                unique_tags.append(tag)
+        result_map = {r.product_index: r for r in results}
 
-        print(f"  → productType: '{result.product_type}'")
-        print(f"  → tags ({len(unique_tags)}): {unique_tags}")
-        print(f"  → brand: '{result.brand}' / size: '{result.size_info}'")
+        for i, product in enumerate(batch):
+            result = result_map.get(i)
+            product_type = get_product_type_from_category(product)
 
-        if args.apply:
-            ok = update_product_tags(endpoint, headers, product["id"], result.product_type, unique_tags)
-            if ok:
-                print(f"  ✅ 更新完了")
-                success += 1
-            else:
+            if not result:
+                print(f"\n  [{batch_idx + i + 1}] {product['title']}")
+                print(f"    ❌ 結果なし")
                 errors += 1
-        else:
-            success += 1
+                continue
 
-        # Gemini レート制限対策
-        if i < len(products) - 1:
+            tags = build_tags(result, product["tags"])
+            metafields = build_metafields(result)
+
+            print(f"\n  [{batch_idx + i + 1}] {product['title']}")
+            print(f"    productType: '{product['productType']}' → '{product_type}'")
+            print(f"    tags ({len(tags)}): {tags}")
+            for mf in metafields:
+                print(f"    metafield: {mf['namespace']}:{mf['key']} = {mf['value']}")
+
+            if args.apply:
+                ok = update_product_full(
+                    endpoint, headers,
+                    product["id"], product_type, tags, metafields
+                )
+                if ok:
+                    print(f"    ✅ 更新完了")
+                    success += 1
+                else:
+                    errors += 1
+            else:
+                success += 1
+
+        if batch_idx + args.batch_size < len(products):
             time.sleep(RATE_LIMIT_DELAY)
 
-    print("\n" + "=" * 70)
-    print(f"完了: {success}件成功, {errors}件エラー")
+    elapsed = time.time() - start_time
+    print(f"\n{'='*70}")
+    print(f"完了: {success}件成功, {errors}件エラー ({elapsed:.1f}秒)")
     if not args.apply:
         print("→ 実際に更新するには --apply オプションを付けてください")
 

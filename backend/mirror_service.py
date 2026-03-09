@@ -11,6 +11,10 @@ import os
 import glob
 import time
 import logging
+import platform
+import subprocess
+import threading
+import concurrent.futures
 import cv2
 import numpy as np
 import base64
@@ -33,7 +37,9 @@ TARGET_FPS = int(os.getenv("MIRROR_FPS", "30"))
 # セグメンテーション処理用の内部解像度 (MediaPipe用、Vision は内部で自動調整)
 SEGMENTATION_WIDTH = int(os.getenv("MIRROR_SEG_WIDTH", "640"))
 # WebP品質 (0-100, 低いほど高速・小サイズ)
-WEBP_QUALITY = int(os.getenv("MIRROR_WEBP_QUALITY", "80"))
+WEBP_QUALITY = int(os.getenv("MIRROR_WEBP_QUALITY", "60"))
+# 出力解像度の幅 (エンコード高速化のため、キャプチャ後にリサイズ)
+OUTPUT_WIDTH = int(os.getenv("MIRROR_OUTPUT_WIDTH", "960"))
 # マスクエッジのぼかし強度 (0=なし, 奇数で指定)
 MASK_BLUR = int(os.getenv("MIRROR_MASK_BLUR", "7"))
 # マスク閾値 (0.0-1.0, 高いほどタイトなカット)
@@ -65,10 +71,27 @@ def _select_backend() -> str:
     return "mediapipe"
 
 
+def _get_macos_camera_names() -> list[str]:
+    """macOS: system_profiler でカメラデバイス名を取得"""
+    if platform.system() != "Darwin":
+        return []
+    try:
+        import json as _json
+        r = subprocess.run(
+            ["system_profiler", "SPCameraDataType", "-json"],
+            capture_output=True, text=True, timeout=5,
+        )
+        data = _json.loads(r.stdout)
+        return [cam.get("_name", "Unknown") for cam in data.get("SPCameraDataType", [])]
+    except Exception:
+        return []
+
+
 def list_cameras(max_index: int = 10) -> list[dict]:
     """
     利用可能なカメラデバイスを列挙する。
     Linux: /dev/video* を走査、macOS/その他: インデックス0-max_indexを試行。
+    macOS では system_profiler からデバイス名を取得して表示する。
     """
     cameras: list[dict] = []
 
@@ -99,15 +122,22 @@ def list_cameras(max_index: int = 10) -> list[dict]:
         return cameras
 
     # macOS / その他: インデックスを順に試行
+    macos_names = _get_macos_camera_names()
+    name_idx = 0
     for idx in range(max_index):
         cap = cv2.VideoCapture(idx)
         if cap.isOpened():
             w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
             cap.release()
+            if name_idx < len(macos_names):
+                name = macos_names[name_idx]
+                name_idx += 1
+            else:
+                name = f"Camera {idx}"
             cameras.append({
                 "index": idx,
-                "name": f"Camera {idx}",
+                "name": name,
                 "resolution": f"{w}x{h}",
             })
     return cameras
@@ -124,6 +154,11 @@ class MirrorSegmenter:
         self._running = False
         self._camera_index = MIRROR_CAMERA_INDEX
         self._seg_size = (SEGMENTATION_WIDTH, 360)  # MediaPipe用デフォルト
+        # カメラアクセスは常に同一スレッドから行う (AVFoundation スレッド安全性対策)
+        self._camera_executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="mirror-cam"
+        )
+        self._lock = threading.Lock()
 
     @property
     def camera_index(self) -> int:
@@ -185,18 +220,33 @@ class MirrorSegmenter:
                             f"capture={actual_w}x{actual_h}@{actual_fps:.0f}fps, "
                             f"backend=Apple Vision (Neural Engine)")
             except Exception as e:
-                logger.warning(f"Vision init failed: {e}, falling back to MediaPipe")
+                logger.warning(f"Vision init failed ({e}), falling back to MediaPipe")
                 backend = "mediapipe"
 
         if backend == "mediapipe":
-            import mediapipe as mp
-            self._mp_segmenter = mp.solutions.selfie_segmentation.SelfieSegmentation(
-                model_selection=1  # 0=General(128x128), 1=Landscape(256x256, 高精度)
-            )
-            self._backend = "mediapipe"
-            logger.info(f"Mirror started: camera={self._camera_index}, "
-                        f"capture={actual_w}x{actual_h}@{actual_fps:.0f}fps, "
-                        f"backend=MediaPipe, seg={self._seg_size[0]}x{self._seg_size[1]}")
+            try:
+                import mediapipe as mp
+                self._mp_segmenter = mp.solutions.selfie_segmentation.SelfieSegmentation(
+                    model_selection=1  # 0=General(128x128), 1=Landscape(256x256, 高精度)
+                )
+                self._backend = "mediapipe"
+                logger.info(f"Mirror started: camera={self._camera_index}, "
+                            f"capture={actual_w}x{actual_h}@{actual_fps:.0f}fps, "
+                            f"backend=MediaPipe, seg={self._seg_size[0]}x{self._seg_size[1]}")
+            except Exception as e:
+                logger.error(f"MediaPipe init failed: {e}")
+                # カメラを開放してエラーを返す
+                if self.cap:
+                    self.cap.release()
+                    self.cap = None
+                return False
+
+        if self._backend == "none":
+            logger.error("No segmentation backend available")
+            if self.cap:
+                self.cap.release()
+                self.cap = None
+            return False
 
         logger.info(f"  webp_q={WEBP_QUALITY}, blur={MASK_BLUR}, threshold={MASK_THRESHOLD}")
 
@@ -205,10 +255,11 @@ class MirrorSegmenter:
 
     def stop(self):
         """リソース解放"""
-        self._running = False
-        if self.cap:
-            self.cap.release()
-            self.cap = None
+        with self._lock:
+            self._running = False
+            if self.cap:
+                self.cap.release()
+                self.cap = None
         if self._mp_segmenter:
             self._mp_segmenter.close()
             self._mp_segmenter = None
@@ -248,12 +299,17 @@ class MirrorSegmenter:
         人物切り抜き(透過WebP)のbase64文字列を返す。
         鏡像(左右反転)にして返す。
         """
-        if not self._running or not self.cap:
-            return None
+        t_start = time.monotonic()
 
-        ret, frame = self.cap.read()
+        with self._lock:
+            if not self._running or not self.cap:
+                return None
+
+            ret, frame = self.cap.read()
         if not ret:
             return None
+
+        t_cap = time.monotonic()
 
         # 鏡像にする (左右反転)
         frame = cv2.flip(frame, 1)
@@ -265,6 +321,8 @@ class MirrorSegmenter:
             mask_u8 = self._get_mask_mediapipe(frame)
         else:
             return None
+
+        t_seg = time.monotonic()
 
         if mask_u8 is None:
             return None
@@ -287,21 +345,52 @@ class MirrorSegmenter:
         bgra = cv2.cvtColor(frame, cv2.COLOR_BGR2BGRA)
         bgra[:, :, 3] = mask_u8
 
+        # 出力用にリサイズ (エンコード高速化)
+        h, w = bgra.shape[:2]
+        if w > OUTPUT_WIDTH:
+            scale = OUTPUT_WIDTH / w
+            out_size = (OUTPUT_WIDTH, int(h * scale))
+            bgra = cv2.resize(bgra, out_size, interpolation=cv2.INTER_AREA)
+
+        t_mask = time.monotonic()
+
         # WebPエンコード (透過対応、PNGより高速)
         _, buf = cv2.imencode(".webp", bgra, [cv2.IMWRITE_WEBP_QUALITY, WEBP_QUALITY])
-        return base64.b64encode(buf).decode("ascii")
+        result = base64.b64encode(buf).decode("ascii")
+
+        t_enc = time.monotonic()
+
+        # パフォーマンスログ (100フレームに1回)
+        if not hasattr(self, '_frame_count'):
+            self._frame_count = 0
+        self._frame_count += 1
+        if self._frame_count % 100 == 1:
+            total = (t_enc - t_start) * 1000
+            logger.info(
+                f"Mirror frame perf: total={total:.0f}ms "
+                f"(capture={((t_cap - t_start) * 1000):.0f}ms, "
+                f"seg={((t_seg - t_cap) * 1000):.0f}ms, "
+                f"mask={((t_mask - t_seg) * 1000):.0f}ms, "
+                f"encode={((t_enc - t_mask) * 1000):.0f}ms) "
+                f"size={len(result)//1024}KB"
+            )
+
+        return result
 
     async def stream_frames(self) -> AsyncGenerator[str, None]:
         """
         非同期フレームジェネレーター。
-        CPU集約処理をスレッドプールにオフロードし、イベントループをブロックしない。
+        専用の単一スレッドでカメラアクセスを行い、AVFoundation のスレッド安全性を保証する。
         処理時間を考慮してフレーム間隔を調整し、一定FPSを維持する。
         """
         interval = 1.0 / TARGET_FPS
+        loop = asyncio.get_running_loop()
 
         while self._running:
             t0 = time.monotonic()
-            frame_data = await asyncio.to_thread(self.get_cutout_frame)
+            frame_data = await loop.run_in_executor(
+                self._camera_executor, self.get_cutout_frame
+            )
             elapsed = time.monotonic() - t0
 
             if frame_data:

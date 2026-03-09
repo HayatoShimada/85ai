@@ -2,14 +2,14 @@
 
 import os
 import json
-import asyncio
 import logging
 from fastapi import APIRouter, UploadFile, File, Form
 
 logger = logging.getLogger(__name__)
 
 from gemini_service import analyze_image_and_get_tags, GeminiAnalysisError
-from shopify_service import search_products_on_shopify
+from catalog_service import catalog_cache
+from customer_service import search_customer_by_email
 from mock_service import get_mock_analysis
 
 router = APIRouter()
@@ -24,6 +24,7 @@ async def analyze_image(
     file: UploadFile = File(...),
     preferences: str = Form(default="[]"),
     customer_id: str = Form(default=""),
+    body_measurements: str = Form(default=""),
 ):
     """
     アップロードされた画像とユーザーの好みタグを受け取り、
@@ -37,6 +38,16 @@ async def analyze_image(
     except json.JSONDecodeError:
         user_preferences = []
 
+    # 体型情報をパース
+    measurements = None
+    if body_measurements and body_measurements.strip():
+        try:
+            measurements = json.loads(body_measurements)
+            if not isinstance(measurements, dict):
+                measurements = None
+        except json.JSONDecodeError:
+            measurements = None
+
     image_bytes = await file.read()
 
     # モックモード
@@ -44,9 +55,14 @@ async def analyze_image(
         result_dict = await get_mock_analysis(user_preferences)
         return {"status": "success", "data": result_dict}
 
+    # カタログテキストを取得 (キャッシュ済み)
+    catalog_text = catalog_cache.get_gemini_catalog() if catalog_cache.is_loaded else ""
+
     # 実API呼び出し
     try:
-        json_str_response = analyze_image_and_get_tags(image_bytes, user_preferences)
+        json_str_response = analyze_image_and_get_tags(
+            image_bytes, user_preferences, measurements, catalog_text
+        )
     except GeminiAnalysisError as e:
         return {"status": "error", "message": str(e)}
 
@@ -58,29 +74,10 @@ async def analyze_image(
             "message": "AI解析結果の読み取りに失敗しました。もう一度お試しください。",
         }
 
-    # Shopifyで商品を検索（複数の提案パターンを並列実行）
-    # 部分成功: Shopify検索が失敗しても解析結果は返す
-    shopify_errors = []
+    # カタログから商品データを参照 (Shopify検索不要)
     recommendations = result_dict.get("recommendations", [])
+    for rec in recommendations:
+        product_ids = rec.get("product_ids", [])
+        rec["shopify_products"] = catalog_cache.get_products_by_ids(product_ids)
 
-    async def _search_for_rec(rec):
-        keywords = rec.get("search_keywords", [])
-        if not keywords:
-            rec["shopify_products"] = []
-            return
-        try:
-            shopify_res = await search_products_on_shopify(keywords)
-            rec["shopify_products"] = shopify_res.get("products", [])
-            if shopify_res.get("status") == "error":
-                shopify_errors.append(rec.get("title", "不明"))
-        except Exception as e:
-            logger.error(f"Shopify search error for {keywords}: {e}")
-            rec["shopify_products"] = []
-            shopify_errors.append(rec.get("title", "不明"))
-
-    await asyncio.gather(*[_search_for_rec(rec) for rec in recommendations])
-
-    response = {"status": "success", "data": result_dict}
-    if shopify_errors:
-        response["warning"] = f"一部の商品検索に失敗しました: {', '.join(shopify_errors)}"
-    return response
+    return {"status": "success", "data": result_dict}
