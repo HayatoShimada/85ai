@@ -11,9 +11,10 @@ services:
       - ./backend:/app
     environment:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - SHOPIFY_STORE_DOMAIN=${SHOPIFY_STORE_DOMAIN}
+      - SHOPIFY_STORE_URL=${SHOPIFY_STORE_URL}
       - SHOPIFY_ADMIN_API_ACCESS_TOKEN=${SHOPIFY_ADMIN_API_ACCESS_TOKEN}
       - SHOPIFY_STOREFRONT_ACCESS_TOKEN=${SHOPIFY_STOREFRONT_ACCESS_TOKEN}
+      - MOCK_MODE=${MOCK_MODE:-false}
     # .env ファイルがあれば読み込む
     env_file:
       - ./backend/.env
