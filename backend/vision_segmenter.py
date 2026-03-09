@@ -70,6 +70,10 @@ class AppleVisionSegmenter:
 
         logger.info(f"AppleVisionSegmenter: quality={self._QUALITY_NAMES.get(quality, quality)}")
 
+    # Vision に渡す最大解像度 (CGImage変換のオーバーヘッド削減)
+    VISION_INPUT_WIDTH = 1024
+    VISION_INPUT_HEIGHT = 768
+
     def process(self, frame_bgr: np.ndarray) -> np.ndarray | None:
         """
         BGR 画像からセグメンテーションマスク (0-255, uint8) を返す。
@@ -77,8 +81,18 @@ class AppleVisionSegmenter:
         """
         h, w = frame_bgr.shape[:2]
 
+        # Vision に渡す前に縮小 (CGImage変換コスト削減)
+        if w > self.VISION_INPUT_WIDTH or h > self.VISION_INPUT_HEIGHT:
+            frame_for_vision = cv2.resize(
+                frame_bgr,
+                (self.VISION_INPUT_WIDTH, self.VISION_INPUT_HEIGHT),
+                interpolation=cv2.INTER_LINEAR,
+            )
+        else:
+            frame_for_vision = frame_bgr
+
         # BGR → RGB → CGImage
-        rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+        rgb = cv2.cvtColor(frame_for_vision, cv2.COLOR_BGR2RGB)
         cg_image = self._numpy_rgb_to_cgimage(rgb)
         if cg_image is None:
             return None

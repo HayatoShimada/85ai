@@ -44,6 +44,10 @@ OUTPUT_WIDTH = int(os.getenv("MIRROR_OUTPUT_WIDTH", "960"))
 MASK_BLUR = int(os.getenv("MIRROR_MASK_BLUR", "7"))
 # マスク閾値 (0.0-1.0, 高いほどタイトなカット)
 MASK_THRESHOLD = float(os.getenv("MIRROR_MASK_THRESHOLD", "0.5"))
+# エッジリファイン: エッジ周辺のフェザー幅 (px, 0=無効)
+EDGE_FEATHER = int(os.getenv("MIRROR_EDGE_FEATHER", "15"))
+# モルフォロジー: 小さな穴・突起を除去するカーネルサイズ (0=無効)
+MORPH_SIZE = int(os.getenv("MIRROR_MORPH_SIZE", "5"))
 # Vision Framework 品質レベル (0=fast/GPU, 1=balanced/GPU+NE, 2=accurate/NeuralEngine)
 VISION_QUALITY = int(os.getenv("MIRROR_VISION_QUALITY", "2"))
 
@@ -87,7 +91,7 @@ def _get_macos_camera_names() -> list[str]:
         return []
 
 
-def list_cameras(max_index: int = 10) -> list[dict]:
+def list_cameras(max_index: int = 3) -> list[dict]:
     """
     利用可能なカメラデバイスを列挙する。
     Linux: /dev/video* を走査、macOS/その他: インデックス0-max_indexを試行。
@@ -269,6 +273,63 @@ class MirrorSegmenter:
         self._backend = "none"
         logger.info("Mirror stopped")
 
+    @staticmethod
+    def _refine_mask(mask_u8: np.ndarray, frame_bgr: np.ndarray) -> np.ndarray:
+        """
+        アート品質のマスクリファイン処理。
+        映像作品・インスタレーション向けの滑らかな切り抜きを実現する。
+
+        1. 閾値で確信度の低い領域を除去
+        2. モルフォロジー処理で小さな穴・突起を除去 (close → open)
+        3. エッジ検出 + 距離変換ベースのソフトフェザー
+        4. 元画像のエッジを考慮した局所的なブレンド
+        """
+        mask_f = mask_u8.astype(np.float32) / 255.0
+
+        # 1. ソフト閾値: シグモイド風のカーブで滑らかにカット
+        #    threshold 付近を急峻にしつつ、完全なバイナリにはしない
+        steepness = 12.0  # 大きいほどシャープ
+        mask_f = 1.0 / (1.0 + np.exp(-steepness * (mask_f - MASK_THRESHOLD)))
+
+        # 2. モルフォロジー: 穴埋め + ノイズ除去
+        if MORPH_SIZE > 1:
+            mask_bin = (mask_f * 255).astype(np.uint8)
+            kernel = cv2.getStructuringElement(
+                cv2.MORPH_ELLIPSE, (MORPH_SIZE, MORPH_SIZE)
+            )
+            # close: 小さな穴を埋める
+            mask_bin = cv2.morphologyEx(mask_bin, cv2.MORPH_CLOSE, kernel)
+            # open: 小さな突起を除去
+            mask_bin = cv2.morphologyEx(mask_bin, cv2.MORPH_OPEN, kernel)
+            mask_f = mask_bin.astype(np.float32) / 255.0
+
+        # 3. エッジフェザー: マスク境界を距離変換で滑らかにグラデーション
+        if EDGE_FEATHER > 0:
+            # バイナリマスクからエッジ領域を特定
+            hard = (mask_f > 0.5).astype(np.uint8)
+
+            # 前景からの距離 (内側へのフェザー)
+            dist_fg = cv2.distanceTransform(hard, cv2.DIST_L2, 5)
+            # 背景からの距離 (外側へのフェザー)
+            dist_bg = cv2.distanceTransform(1 - hard, cv2.DIST_L2, 5)
+
+            # フェザー幅内でグラデーション (0→1)
+            feather = EDGE_FEATHER
+            alpha = np.clip(dist_fg / feather, 0, 1).astype(np.float32)
+            # 外側にも薄く広げる (自然な透け感)
+            outer_blend = np.clip(1.0 - dist_bg / (feather * 0.5), 0, 1)
+            alpha = np.maximum(alpha, outer_blend * 0.3)
+
+            # 元のソフトマスクとブレンド (エッジ以外は元マスクを尊重)
+            edge_zone = (dist_fg < feather) | (dist_bg < feather * 0.5)
+            mask_f = np.where(edge_zone, alpha, mask_f)
+
+        # 4. 最終ガウシアンブラー (微細なジャギー除去)
+        if MASK_BLUR > 1:
+            mask_f = cv2.GaussianBlur(mask_f, (MASK_BLUR, MASK_BLUR), 0)
+
+        return (np.clip(mask_f, 0, 1) * 255).astype(np.uint8)
+
     def _get_mask_vision(self, frame: np.ndarray) -> np.ndarray | None:
         """Apple Vision Framework でセグメンテーションマスクを取得"""
         return self._vision_segmenter.process(frame)
@@ -327,19 +388,8 @@ class MirrorSegmenter:
         if mask_u8 is None:
             return None
 
-        # 閾値適用 (Vision の場合は既に 0-255 なので閾値のみ)
-        if self._backend == "mediapipe":
-            # MediaPipe: 閾値でソフトマスク
-            mask_u8 = ((mask_u8 / 255.0 > MASK_THRESHOLD).astype(np.float32)
-                       * mask_u8).astype(np.uint8)
-        else:
-            # Vision: 閾値でカット
-            threshold_val = int(MASK_THRESHOLD * 255)
-            mask_u8 = np.where(mask_u8 > threshold_val, mask_u8, 0).astype(np.uint8)
-
-        # マスクエッジをガウシアンブラーで滑らかに
-        if MASK_BLUR > 1:
-            mask_u8 = cv2.GaussianBlur(mask_u8, (MASK_BLUR, MASK_BLUR), 0)
+        # --- アート品質マスクリファイン ---
+        mask_u8 = self._refine_mask(mask_u8, frame)
 
         # BGRAに変換してアルファチャンネルにマスクを適用
         bgra = cv2.cvtColor(frame, cv2.COLOR_BGR2BGRA)

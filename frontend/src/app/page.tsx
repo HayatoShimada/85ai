@@ -49,13 +49,14 @@ export default function Home() {
   const api = useBackendAPI();
   const sync = useProjectionSync(API_URL);
 
-  // マウント時にバックエンドヘルスチェック＆ミラーカメラ一覧取得
+  // マウント時にバックエンドヘルスチェック＆ミラーカメラ一覧取得 (1回のみ)
   useEffect(() => {
     api.checkHealth();
     api.fetchMirrorCameras().then((data) => {
       if (data && data.cameras) setMirrorCameras(data.cameras);
     });
-  }, [api]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // -------------------------
   // 共有関数

@@ -17,7 +17,7 @@ export interface ShopifyProduct {
 export interface RecommendationItem {
   title: string;
   reason: string;
-  search_keywords: string[];
+  product_ids: number[];
   category: string;
   shopify_products: ShopifyProduct[];
 }

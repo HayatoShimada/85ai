@@ -10,7 +10,6 @@ import { ProjectionResultScene } from "@/components/projection/ProjectionResultS
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const WS_URL = API_URL.replace(/^http/, "ws") + "/ws/projection/display";
-const MIRROR_WS_URL = API_URL.replace(/^http/, "ws") + "/ws/mirror";
 
 const defaultPayload: ProjectionPayload = {
   selectedTags: [],
@@ -31,14 +30,14 @@ export default function ProjectionPage() {
   const [mirrorFrame, setMirrorFrame] = useState<string | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
-  const mirrorWsRef = useRef<WebSocket | null>(null);
 
   // ==========================================
-  // Connection 1: UI状態同期 WebSocket
+  // Display WebSocket (状態同期 + ミラーフレーム統合)
+  // projection_manager が JSON制御メッセージとbase64ミラーフレームの両方を配信
   // ==========================================
-  const connectControl = useCallback(() => {
+  const connectDisplay = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
-    
+
     const ws = new WebSocket(WS_URL);
     wsRef.current = ws;
 
@@ -48,25 +47,34 @@ export default function ProjectionPage() {
     };
 
     ws.onmessage = (e) => {
-      try {
-        const data = JSON.parse(e.data);
-        if (data.type === "STATE_CHANGE" && data.state) {
-          setAppState(data.state as AppState);
-          if (data.payload) {
-            setPayload((prev) => ({ ...prev, ...data.payload }));
+      if (typeof e.data !== "string") return;
+
+      // JSON制御メッセージ
+      if (e.data.startsWith("{")) {
+        try {
+          const data = JSON.parse(e.data);
+          if (data.type === "STATE_CHANGE" && data.state) {
+            setAppState(data.state as AppState);
+            if (data.payload) {
+              setPayload((prev) => ({ ...prev, ...data.payload }));
+            }
+          } else if (data.type === "FLASH") {
+            setFlash(true);
+            setTimeout(() => setFlash(false), 1200);
           }
-        } else if (data.type === "FLASH") {
-          setFlash(true);
-          setTimeout(() => setFlash(false), 1200);
+        } catch (err) {
+          console.error("Failed to parse projection WS message", err);
         }
-      } catch (err) {
-        console.error("Failed to parse projection WS message", err);
+      } else {
+        // base64ミラーフレーム (projection_manager から配信)
+        setMirrorFrame(e.data);
       }
     };
 
     ws.onclose = () => {
       console.log("[Projection WS] Disconnected. Reconnect in 3s...");
-      setTimeout(connectControl, 3000);
+      setMirrorFrame(null);
+      setTimeout(connectDisplay, 3000);
     };
 
     ws.onerror = (err) => {
@@ -74,47 +82,12 @@ export default function ProjectionPage() {
     };
   }, []);
 
-  // ==========================================
-  // Connection 2: ミラー映像同期 WebSocket
-  // ==========================================
-  const connectMirror = useCallback(() => {
-    if (mirrorWsRef.current?.readyState === WebSocket.OPEN) return;
-    
-    const ws = new WebSocket(MIRROR_WS_URL);
-    mirrorWsRef.current = ws;
-
-    ws.onopen = () => {
-      console.log("[Mirror WS] Connected");
-    };
-
-    ws.onmessage = (e) => {
-      if (typeof e.data === "string" && !e.data.startsWith("{")) {
-        setMirrorFrame(e.data);
-      }
-    };
-
-    ws.onclose = () => {
-      console.log("[Mirror WS] Disconnected. Reconnect in 3s...");
-      setMirrorFrame(null);
-      setTimeout(connectMirror, 3000);
-    };
-
-    ws.onerror = (err) => {
-      console.error("[Mirror WS] Error:", err);
-    };
-  }, []);
-
   useEffect(() => {
-    connectControl();
-    connectMirror();
-    
-    return () => {
-      wsRef.current?.close();
-      mirrorWsRef.current?.close();
-    };
-  }, [connectControl, connectMirror]);
+    connectDisplay();
+    return () => { wsRef.current?.close(); };
+  }, [connectDisplay]);
 
-  const showMirror = appState === "CAMERA_ACTIVE" || appState === "ANALYZING";
+  const showMirror = appState === "IDLE" || appState === "PREFERENCE" || appState === "CAMERA_ACTIVE" || appState === "ANALYZING";
 
   return (
     <main className="w-screen h-screen overflow-hidden bg-black text-slate-100 font-sans cursor-none relative">

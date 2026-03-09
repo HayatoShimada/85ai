@@ -177,7 +177,7 @@ export function PreferenceView({
                     defaultValue=""
                     className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-slate-200 outline-none focus:ring-2 focus:ring-emerald-500"
                   >
-                    <option value="" disabled>フロントエンドからは変更不可</option>
+                    <option value="" disabled>ミラーカメラを選択</option>
                     {mirrorCameras.map((cam: any) => (
                       <option key={cam.index} value={cam.index}>
                         {cam.name} {cam.is_active ? "(稼働中)" : ""}
