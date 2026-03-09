@@ -1,6 +1,6 @@
 # 85-Store AI Shop Assistant
 
-実店舗とShopifyのデータ、最新AI（Gemini 1.5 Pro）を融合した「次世代の古着屋体験」を提供するAI接客システムです。
+実店舗とShopifyのデータ、最新AI（Gemini 3.1 Pro）を融合した「次世代の古着屋体験」を提供するAI接客システムです。
 
 ## プロジェクト概要
 
@@ -16,7 +16,7 @@
 
 ## 主な機能
 
-1. **コーディネート解析** — カメラ撮影 or 画像アップロード → Gemini 1.5 Pro で服装を解析
+1. **コーディネート解析** — カメラ撮影 or 画像アップロード → Gemini 3.1 Pro で服装を解析
 2. **パーソナライズ提案** — ユーザーの好みタグ（スタイル・年代感等）を加味した最大3パターンの提案
 3. **Shopifyリアルタイム連携** — Storefront API (GraphQL) で在庫がある商品のみを検索・表示
 4. **顧客管理** — Admin API で好みデータをメタフィールドに保存、リピーターの好み自動復元
@@ -30,7 +30,7 @@
 | レイヤー | 技術 |
 |----------|------|
 | バックエンド | FastAPI (Python 3.11+), Uvicorn |
-| AI解析 | Google Gemini 1.5 Pro (構造化JSON出力) |
+| AI解析 | Google Gemini 3.1 Pro (構造化JSON出力) |
 | 商品検索 | Shopify Storefront API (GraphQL, `2026-01`) |
 | 顧客管理 | Shopify Admin API (GraphQL, `2026-01`) |
 | 認証 | Client Credentials Grant + 自動トークン更新 |

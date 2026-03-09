@@ -114,7 +114,7 @@ _color: white
 * **中核ハブ (Mac Studio):** カメラ認識、AI通信、API連携、プロジェクションマッピング映像生成・音響制御を一括処理する強力なコア。
 * **操作端末 (iPad):** お客様の手元で動作するリモートUI兼ストリーミング端末。好みの入力やAI提案の閲覧を行う。
 * **空間デバイス:** 超短焦点/高輝度プロジェクターと店舗用スピーカーシステム。
-* **ソフトウェア構成:** React (UI), Python/FastAPI (バックエンド), Gemini 1.5 Pro API (AI), Shopify Storefront API (在庫検索), Shopify Admin API (顧客管理・好みデータ), TouchDesigner等 (映像演出)
+* **ソフトウェア構成:** React (UI), Python/FastAPI (バックエンド), Gemini 3.1 Pro API (AI), Shopify Storefront API (在庫検索), Shopify Admin API (顧客管理・好みデータ), TouchDesigner等 (映像演出)
 
 ---
 
