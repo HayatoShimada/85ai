@@ -32,7 +32,7 @@
 | レイヤー | 技術 |
 |----------|------|
 | バックエンド | FastAPI (Python 3.11+), Uvicorn |
-| AI解析 | Google Gemini 2.5 Flash (構造化JSON出力) |
+| AI解析 | Google Gemini 1.5 Pro (構造化JSON出力) |
 | 商品検索 | Shopify Storefront API (GraphQL, API version `2026-01`) |
 | 顧客管理 | Shopify Admin API (GraphQL, API version `2026-01`) |
 | 認証 | Client Credentials Grant + 自動トークン更新 |
@@ -202,7 +202,7 @@ iPad（操作画面）からの状態変更を受信。
 
 ### 3.1 gemini_service.py — AI解析
 
-Gemini 2.5 Flash に画像を送信し、構造化JSON（Pydanticスキーマ）で結果を取得。
+Gemini 1.5 Pro に画像を送信し、構造化JSON（Pydanticスキーマ）で結果を取得。
 
 **Pydanticスキーマ:**
 ```python

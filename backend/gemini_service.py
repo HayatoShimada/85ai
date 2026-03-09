@@ -30,14 +30,14 @@ class ClothingAnalysis(BaseModel):
 
 def analyze_image_and_get_tags(image_bytes: bytes, user_preferences: list[str] | None = None) -> str:
     """
-    画像データとユーザーの好みタグを受け取り、Gemini 2.5 Flashで解析して
-    Shopify検索用のキーワードをJSON文字列として返す関数
+    画像データとユーザーの好みタグを受け取り、Gemini 1.5 Proで解析して
+    Shopifyでの検索キーワードや提案の理由などを返す。JSON文字列として返す関数
     """
     try:
         image = Image.open(io.BytesIO(image_bytes))
 
-        # モデルの初期化 (高速な2.5 Flashモデルを使用)
-        model = genai.GenerativeModel("gemini-2.5-flash")
+        # gemini-1.5-pro モデルの準備
+        model = genai.GenerativeModel("gemini-1.5-pro")
 
         # ユーザーの好みをプロンプトに組み込む
         if user_preferences:
