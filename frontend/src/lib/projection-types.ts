@@ -1,50 +1,41 @@
-export type AppState = "IDLE" | "PREFERENCE" | "CAMERA_ACTIVE" | "ANALYZING" | "RESULT";
+export type AppState =
+  | "IDLE"
+  | "PREFERENCE"
+  | "CAMERA_ACTIVE"
+  | "ANALYZING"
+  | "RESULT";
 
-export type BodyMeasurements = {
-  height: string;
-  shoulder_width: string;
-  chest: string;
-  waist: string;
-  weight: string;
-};
-
-export type ShopifyProduct = {
+export interface ShopifyProduct {
   id: string;
   title: string;
   description: string;
   price: string;
   image_url: string;
   url: string;
-};
+}
 
-export type RecommendationPattern = {
+export interface RecommendationItem {
   title: string;
   reason: string;
-  product_ids: number[];
+  search_keywords: string[];
   category: string;
   shopify_products: ShopifyProduct[];
-};
+}
 
-export type RecommendationData = {
+export interface ClothingAnalysis {
   analyzed_outfit: string;
   detected_style: string[];
   box_ymin: number;
   box_xmin: number;
   box_ymax: number;
   box_xmax: number;
-  recommendations: RecommendationPattern[];
-};
+  recommendations: RecommendationItem[];
+}
 
-export type ProjectionPayload = {
+export interface ProjectionPayload {
   selectedTags: string[];
   userName: string;
   capturedImage: string | null;
-  recommendation: RecommendationData | null;
+  recommendation: ClothingAnalysis | null;
   analyzeTimedOut: boolean;
-};
-
-export type ProjectionMessage =
-  | { type: "STATE_CHANGE"; state: AppState; payload: ProjectionPayload }
-  | { type: "FLASH" }
-  | { type: "REQUEST_STATE" }
-  | { type: "MIRROR_FRAME"; frame: string };
+}
