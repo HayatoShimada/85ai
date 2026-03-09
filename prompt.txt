@@ -1,0 +1,40 @@
+了解です。まずサイズデータの管理方針を整理してから適用しましょう。
+
+  サイズデータ管理の方針
+
+  おっしゃる通り、tags だけでは構造化されたサイズ情報の管理は困難です。タグに 肩幅48cm と入れても検索・フィルタリングに使えません。
+
+  Shopify Metafields を活用する方式
+
+  Shopifyには Product Metafields という仕組みがあり、商品ごとに構造化データを保存できます。
+
+  商品メタフィールド例:
+    custom.shoulder_width  = 48    (数値: cm)
+    custom.chest_width     = 57    (数値: cm)
+    custom.sleeve_length   = 64    (数値: cm)
+    custom.body_length     = 79    (数値: cm)
+    custom.waist           = null  (パンツ系のみ)
+    custom.inseam          = null  (パンツ系のみ)
+    custom.size_label      = "L"   (表記サイズ)
+
+  メリット:
+  - 数値で保存するので「肩幅45-50cmの商品」のような範囲検索が可能
+  - Storefront API の filters でメタフィールドによるフィルタリングができる
+  - タグは検索キーワード用、メタフィールドはサイズマッチング用と役割分離
+
+  ユーザーフロー:
+  1. 身長・体重・肩幅・ウエスト等を入力（Customer Metafieldに保存）
+  2. Geminiが体格からサイズ許容範囲を推定（例: 肩幅 ±3cm）
+  3. Storefront API で metafield filter を使って範囲内の商品を抽出
+
+  tag_products.py の拡張案
+
+  Geminiにサイズ情報もstructuredに返してもらい:
+  - tags → 検索キーワード用（カテゴリ、スタイル、素材、色、ブランド等）
+  - metafields → サイズ数値（肩幅、身幅、袖丈、着丈、ウエスト、股下）
+
+  この方針で tag_products.py を拡張してよいですか？Geminiのスキーマに採寸データを追加し、metafield として Shopify に保存する形にします。
+
+✻ Brewed for 31s · 1 background task still running (↓ to manage)
+
+❯ tag_products.pyを拡張しましょう。aiで推論しやすいようにメタデータを増やしていきましょう。
