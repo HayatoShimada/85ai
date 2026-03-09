@@ -7,3 +7,8 @@ pydantic
 python-multipart
 Pillow
 opencv-python-headless
+mediapipe
+websockets
+pytest
+pytest-asyncio
+httpx

@@ -10,17 +10,51 @@
 - [x] Docker / Docker Compose 設定
 - [x] 音声読み上げ（Web Speech API）
 
-### 未実装・改善が必要
-- [ ] Ubuntu/WSL2環境での動作確認・修正
-- [ ] ユーザー好み入力画面（PREFERENCE画面）
-- [ ] Shopify顧客管理連携（Admin API）
-- [ ] Geminiプロンプトへの好みタグ反映
-- [ ] モックモード（APIキーなしでの開発・テスト）
-- [ ] ヘルスチェックエンドポイント
-- [ ] テスト自動化（pytest）
-- [ ] エラーハンドリングの改善
-- [ ] フロントエンドのAPI URLの環境変数化
-- [ ] 画像アップロードの代替手段（ファイル選択）
+### Phase 1 実装状況
+- [x] Ubuntu/WSL2環境での動作確認・修正 (1-1: Dockerfile修正、opencv-headless化)
+- [x] モックモード（APIキーなしでの開発・テスト）(1-2: mock_service.py)
+- [x] ヘルスチェックエンドポイント (1-3: GET /api/health)
+- [x] フロントエンドのAPI URLの環境変数化 (1-4: NEXT_PUBLIC_API_URL)
+- [x] 画像アップロードの代替手段（ファイル選択）(1-5)
+- [x] ユーザー好み入力画面（PREFERENCE画面）(1-6: スタイルタグ選択UI)
+- [x] Shopify顧客管理連携（Admin API）(1-7: customer_service.py, POST/GET /api/customers)
+- [x] Geminiプロンプトへの好みタグ反映 (1-8: detected_style追加)
+- [x] ブラウザ側カメラ選択UI (追加: enumerateDevices + プルダウン/切り替えボタン)
+- [x] layout.tsx メタデータ修正 (3-3を前倒し実施)
+
+### Phase 2 実装状況
+- [x] pytest セットアップ (2-1: conftest.py, test_api.py, test_customers.py, test_gemini.py, test_shopify.py)
+- [x] requirements に pytest / pytest-asyncio / httpx 追加 (2-2)
+- [x] docker-compose exec backend pytest tests/ -v で全25テスト通過 (2-3)
+
+### Phase 3 実装状況
+- [x] Gemini APIタイムアウト設定 (60秒) とエラー種別の判定 (3-1)
+- [x] Shopify APIタイムアウト設定 (15秒)、Customer APIタイムアウト追加 (3-1)
+- [x] Shopify部分成功: 解析成功+商品検索失敗時もwarning付きで結果を返す (3-1)
+- [x] フロントエンド: 30秒タイムアウト検知メッセージ、キャンセルボタン (3-2)
+- [x] フロントエンド: リトライボタン（直前の画像で再解析） (3-2)
+- [x] フロントエンド: 部分成功のwarning表示、fetch 90秒AbortController (3-2)
+- [x] Phase 3テスト追加: 不正JSON、Geminiエラー、Shopify部分成功 (25テスト全通過)
+- [x] layout.tsx メタデータ修正 (3-3: Phase 1で完了済み)
+
+### Phase 4 実装状況
+- [x] Shopify APIバージョン更新 (2024-01 → 2026-01) (4-1)
+- [x] 商品画像の最適化: next/image + lazy loading、remotePatterns設定 (4-2)
+- [x] QRコード生成: qrcode.react、商品ごとのQRボタン+モーダル表示 (4-3)
+
+### Phase 5 実装状況（プロジェクション・インフラ強化）
+- [x] プロジェクション演出画面 (projection/page.tsx: 5シーン演出)
+- [x] BroadcastChannel → WebSocket移行 (別デバイス間同期対応)
+- [x] ProjectionManager (バックエンド状態リレー + ミラー自動制御)
+- [x] ミラーカメラサービス (mirror_service.py: OpenCV + MediaPipe人物セグメンテーション)
+- [x] Admin APIトークン自動更新 (shopify_auth.py: Client Credentials Grant, 24h自動更新)
+- [x] ミラーカメラ列挙・ブラウザからの選択切替 (GET/POST /api/mirror/cameras)
+- [x] Dockerfile修正 (libgl1-mesa-glx → libgl1)
+- [x] docker-compose.yml環境変数上書き問題修正 (env_file優先に変更)
+- [x] .env.example更新 (SHOPIFY_CLIENT_ID/SECRET追加)
+- [x] @mediapipe/tasks-vision未使用パッケージ削除
+- [x] 顧客名のNone混入バグ修正 (get('firstName', '') → get('firstName') or '')
+- [x] SSRハイドレーション不一致修正 (Math.random() → 固定シード値)
 
 ---
 

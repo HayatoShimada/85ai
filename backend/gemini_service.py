@@ -1,5 +1,6 @@
 import os
 import io
+import json
 import google.generativeai as genai
 from PIL import Image
 from pydantic import BaseModel, Field
@@ -63,10 +64,22 @@ def analyze_image_and_get_tags(image_bytes: bytes, user_preferences: list[str] |
             generation_config=genai.GenerationConfig(
                 response_mime_type="application/json",
                 response_schema=ClothingAnalysis
-            )
+            ),
+            request_options={"timeout": 60},
         )
 
         return response.text
     except Exception as e:
         print(f"Error in Gemini API: {e}")
-        return '{"analyzed_outfit": "エラーが発生しました", "detected_style": [], "box_ymin": 0, "box_xmin": 0, "box_ymax": 1000, "box_xmax": 1000, "recommendations": []}'
+        error_type = type(e).__name__
+        if "timeout" in str(e).lower() or "deadline" in str(e).lower():
+            error_msg = "AI解析がタイムアウトしました。もう一度お試しください。"
+        else:
+            error_msg = f"AI解析中にエラーが発生しました（{error_type}）"
+        return json.dumps({
+            "analyzed_outfit": error_msg,
+            "detected_style": [],
+            "box_ymin": 0, "box_xmin": 0, "box_ymax": 1000, "box_xmax": 1000,
+            "recommendations": [],
+            "_error": True,
+        }, ensure_ascii=False)

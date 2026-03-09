@@ -1,8 +1,11 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Camera, Check, RefreshCcw, Sparkles, Upload, User, Search } from "lucide-react";
+import { AlertTriangle, Camera, Check, ChevronDown, Monitor, RefreshCcw, RotateCcw, Sparkles, Upload, User, Search, Video } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import Image from "next/image";
+import QRCodeButton from "@/components/QRCode";
+import { type AppState, type ProjectionMessage } from "@/lib/projection-types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -12,9 +15,6 @@ const STYLE_TAGS = {
   スタイル: ["ストリート", "アメカジ", "モード", "ヴィンテージ", "カジュアル", "スポーティ"],
   年代感: ["70s", "80s", "90s", "Y2K", "ミリタリー"],
 };
-
-// アプリのメイン状態管理
-type AppState = "IDLE" | "PREFERENCE" | "CAMERA_ACTIVE" | "ANALYZING" | "RESULT";
 
 export default function Home() {
   const [appState, setAppState] = useState<AppState>("IDLE");
@@ -34,6 +34,27 @@ export default function Home() {
   const [customerId, setCustomerId] = useState<string>("");
   const [customerLoading, setCustomerLoading] = useState(false);
   const [customerMessage, setCustomerMessage] = useState<string | null>(null);
+
+  // 解析タイムアウト検知用
+  const [analyzeTimedOut, setAnalyzeTimedOut] = useState(false);
+  const analyzeTimerRef = useRef<NodeJS.Timeout | null>(null);
+  // リトライ用に直前の画像を保持
+  const lastImageRef = useRef<{ blob: Blob; previewUrl: string } | null>(null);
+  // 部分成功の警告メッセージ
+  const [warningMsg, setWarningMsg] = useState<string | null>(null);
+
+  // 演出画面連携用 (WebSocket → バックエンド経由)
+  const projectionWsRef = useRef<WebSocket | null>(null);
+  const projectionReconnectRef = useRef<NodeJS.Timeout | null>(null);
+  const [capturedImageBase64, setCapturedImageBase64] = useState<string | null>(null);
+
+  // カメラ選択用のステート
+  const [videoDevices, setVideoDevices] = useState<MediaDeviceInfo[]>([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string>("");
+
+  // ミラーカメラ選択用のステート
+  const [mirrorCameras, setMirrorCameras] = useState<{ index: number; name: string; resolution: string }[]>([]);
+  const [mirrorCameraIndex, setMirrorCameraIndex] = useState<number>(0);
 
   // 音声合成用の関数
   const speakText = useCallback((text: string) => {
@@ -103,14 +124,64 @@ export default function Home() {
     startCamera();
   };
 
-  // カメラの起動処理
-  const startCamera = async () => {
-    setErrorMsg(null);
+  // バックエンドのミラーカメラ一覧を取得
+  const fetchMirrorCameras = useCallback(async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user" },
+      const res = await fetch(`${API_URL}/api/mirror/cameras`);
+      const data = await res.json();
+      if (data.status === "ok") {
+        setMirrorCameras(data.cameras || []);
+        setMirrorCameraIndex(data.current ?? 0);
+      }
+    } catch (err) {
+      console.error("Mirror camera fetch error:", err);
+    }
+  }, []);
+
+  // ミラーカメラを切り替え
+  const switchMirrorCamera = async (index: number) => {
+    try {
+      const res = await fetch(`${API_URL}/api/mirror/cameras/${index}`, { method: "POST" });
+      const data = await res.json();
+      if (data.status === "ok") {
+        setMirrorCameraIndex(data.current);
+      }
+    } catch (err) {
+      console.error("Mirror camera switch error:", err);
+    }
+  };
+
+  // 利用可能なカメラデバイスを列挙
+  const enumerateVideoDevices = useCallback(async () => {
+    try {
+      // まず一時的にカメラ許可を取得（デバイスラベルの取得に必要）
+      const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
+      tempStream.getTracks().forEach((t) => t.stop());
+
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const cameras = devices.filter((d) => d.kind === "videoinput");
+      setVideoDevices(cameras);
+      // デフォルト: 未選択なら最初のデバイスを選択
+      if (cameras.length > 0 && !selectedDeviceId) {
+        setSelectedDeviceId(cameras[0].deviceId);
+      }
+    } catch (err) {
+      console.error("Device enumeration error:", err);
+    }
+  }, [selectedDeviceId]);
+
+  // カメラの起動処理
+  const startCamera = async (deviceId?: string) => {
+    setErrorMsg(null);
+    const targetDeviceId = deviceId || selectedDeviceId;
+    try {
+      const constraints: MediaStreamConstraints = {
+        video: targetDeviceId
+          ? { deviceId: { exact: targetDeviceId } }
+          : { facingMode: "user" },
         audio: false,
-      });
+      };
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
@@ -121,6 +192,13 @@ export default function Home() {
       setErrorMsg("カメラへのアクセスが拒否されたか、デバイスが見つかりません。画像アップロードをお試しください。");
       setAppState("PREFERENCE");
     }
+  };
+
+  // カメラを切り替え
+  const switchCamera = async (deviceId: string) => {
+    setSelectedDeviceId(deviceId);
+    stopCamera();
+    await startCamera(deviceId);
   };
 
   // カメラの停止処理
@@ -134,8 +212,22 @@ export default function Home() {
   // 画像をAPIに送信する共通処理
   const sendImageToAPI = async (imageBlob: Blob, previewUrl: string) => {
     setCapturedImage(previewUrl);
+    lastImageRef.current = { blob: imageBlob, previewUrl };
+
+    // 演出画面用にbase64変換（BroadcastChannelでblob URLは送れない）
+    const reader = new FileReader();
+    reader.onloadend = () => setCapturedImageBase64(reader.result as string);
+    reader.readAsDataURL(imageBlob);
+
     stopCamera();
     setAppState("ANALYZING");
+    setAnalyzeTimedOut(false);
+    setWarningMsg(null);
+
+    // 30秒タイムアウト検知タイマー
+    analyzeTimerRef.current = setTimeout(() => {
+      setAnalyzeTimedOut(true);
+    }, 30000);
 
     const formData = new FormData();
     formData.append("file", imageBlob, "capture.jpg");
@@ -145,36 +237,67 @@ export default function Home() {
     }
 
     try {
+      const controller = new AbortController();
+      const fetchTimeout = setTimeout(() => controller.abort(), 90000);
+
       const res = await fetch(`${API_URL}/api/analyze`, {
         method: "POST",
         body: formData,
+        signal: controller.signal,
       });
+      clearTimeout(fetchTimeout);
 
       if (!res.ok) {
-        throw new Error(`API returned ${res.status}`);
+        throw new Error(`サーバーエラー（${res.status}）`);
       }
 
       const resData = await res.json();
 
       if (resData.status === "success") {
         setRecommendation(resData.data);
+        if (resData.warning) {
+          setWarningMsg(resData.warning);
+        }
         setAppState("RESULT");
         if (resData.data.analyzed_outfit) {
           speakText(resData.data.analyzed_outfit);
         }
       } else {
-        throw new Error(resData.message || "Unknown error occurred");
+        throw new Error(resData.message || "不明なエラーが発生しました");
       }
     } catch (err: any) {
       console.error("Analysis Error:", err);
-      setErrorMsg(`解析中にエラーが発生しました: ${err.message}`);
+      const message = err.name === "AbortError"
+        ? "通信がタイムアウトしました。もう一度お試しください。"
+        : `解析中にエラーが発生しました: ${err.message}`;
+      setErrorMsg(message);
       setAppState("PREFERENCE");
+    } finally {
+      if (analyzeTimerRef.current) {
+        clearTimeout(analyzeTimerRef.current);
+        analyzeTimerRef.current = null;
+      }
     }
   };
 
-  // カメラ撮影→API送信
+  // リトライ: 直前の画像で再解析
+  const retryAnalysis = () => {
+    if (lastImageRef.current) {
+      sendImageToAPI(lastImageRef.current.blob, lastImageRef.current.previewUrl);
+    }
+  };
+
+  // カメラ撮影→API送信（演出画面フラッシュ付き）
   const captureAndAnalyze = async () => {
     if (!videoRef.current) return;
+
+    // 演出画面を白くしてフラッシュ代わりにする（WebSocket経由）
+    if (projectionWsRef.current?.readyState === WebSocket.OPEN) {
+      projectionWsRef.current.send(JSON.stringify({ type: "FLASH" }));
+    }
+
+    // プロジェクターの応答待ち（白画面が表示されてから撮影）
+    await new Promise((r) => setTimeout(r, 300));
 
     const canvas = document.createElement("canvas");
     canvas.width = videoRef.current.videoWidth;
@@ -210,14 +333,90 @@ export default function Home() {
   const resetApp = () => {
     stopCamera();
     setCapturedImage(null);
+    setCapturedImageBase64(null);
     setRecommendation(null);
     setErrorMsg(null);
+    setWarningMsg(null);
     setCustomerMessage(null);
+    setAnalyzeTimedOut(false);
+    lastImageRef.current = null;
+    if (analyzeTimerRef.current) {
+      clearTimeout(analyzeTimerRef.current);
+      analyzeTimerRef.current = null;
+    }
     setAppState("IDLE");
     if (typeof window !== "undefined") {
       window.speechSynthesis.cancel();
     }
   };
+
+  // 演出画面への状態ブロードキャスト
+  const broadcastState = useCallback((state: AppState) => {
+    const msg: ProjectionMessage = {
+      type: "STATE_CHANGE",
+      state,
+      payload: {
+        selectedTags,
+        userName,
+        capturedImage: capturedImageBase64,
+        recommendation,
+        analyzeTimedOut,
+      },
+    };
+    if (projectionWsRef.current?.readyState === WebSocket.OPEN) {
+      projectionWsRef.current.send(JSON.stringify(msg));
+    }
+  }, [selectedTags, userName, capturedImageBase64, recommendation, analyzeTimedOut]);
+
+  // 演出画面を別ウィンドウで開く
+  const openProjection = () => {
+    window.open("/projection", "projection-display", "popup,width=1920,height=1080");
+  };
+
+  // WebSocket接続 (プロジェクション制御 → バックエンド経由で別デバイスに配信)
+  useEffect(() => {
+    const wsUrl = `${API_URL.replace(/^http/, "ws")}/ws/projection/control`;
+
+    const connect = () => {
+      const ws = new WebSocket(wsUrl);
+      ws.onopen = () => {
+        projectionWsRef.current = ws;
+      };
+      ws.onclose = () => {
+        projectionWsRef.current = null;
+        projectionReconnectRef.current = setTimeout(connect, 2000);
+      };
+      ws.onerror = () => ws.close();
+    };
+
+    connect();
+
+    return () => {
+      if (projectionReconnectRef.current) clearTimeout(projectionReconnectRef.current);
+      projectionWsRef.current?.close();
+      projectionWsRef.current = null;
+    };
+  }, []);
+
+  // 状態変更時にブロードキャスト
+  useEffect(() => {
+    broadcastState(appState);
+  }, [appState, broadcastState]);
+
+  // タイムアウト変更時もブロードキャスト
+  useEffect(() => {
+    if (appState === "ANALYZING") {
+      broadcastState(appState);
+    }
+  }, [analyzeTimedOut]);
+
+  // PREFERENCE画面に入った時にカメラデバイスとミラーカメラを列挙
+  useEffect(() => {
+    if (appState === "PREFERENCE") {
+      enumerateVideoDevices();
+      fetchMirrorCameras();
+    }
+  }, [appState, enumerateVideoDevices, fetchMirrorCameras]);
 
   // クリーンアップ
   useEffect(() => {
@@ -233,6 +432,15 @@ export default function Home() {
         <Sparkles className="w-8 h-8 text-emerald-400" />
         <span>VINTAGE.AI</span>
       </div>
+
+      {/* 演出画面を開くボタン */}
+      <button
+        onClick={openProjection}
+        className="absolute top-8 right-8 p-2 rounded-lg bg-slate-800/60 hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition-colors border border-slate-700"
+        title="演出画面を開く"
+      >
+        <Monitor className="w-5 h-5" />
+      </button>
 
       <AnimatePresence mode="wait">
         {/* --- 待機・スタート画面 --- */}
@@ -350,9 +558,70 @@ export default function Home() {
               ))}
             </div>
 
+            {/* カメラ選択 */}
+            {videoDevices.length > 1 && (
+              <div className="w-full bg-slate-800/60 rounded-2xl p-6 border border-slate-700 space-y-3">
+                <div className="flex items-center space-x-2 text-slate-300">
+                  <Camera className="w-5 h-5" />
+                  <span className="font-medium">撮影カメラ（ブラウザ）</span>
+                </div>
+                <div className="relative">
+                  <select
+                    value={selectedDeviceId}
+                    onChange={(e) => setSelectedDeviceId(e.target.value)}
+                    className="w-full px-4 py-3 bg-slate-900 border border-slate-600 rounded-xl text-slate-200 focus:outline-none focus:border-emerald-500 transition-colors appearance-none cursor-pointer"
+                  >
+                    {videoDevices.map((device, idx) => (
+                      <option key={device.deviceId} value={device.deviceId}>
+                        {device.label || `カメラ ${idx + 1}`}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                </div>
+              </div>
+            )}
+
+            {/* ミラーカメラ選択（バックエンド接続カメラ） */}
+            {mirrorCameras.length > 0 && (
+              <div className="w-full bg-slate-800/60 rounded-2xl p-6 border border-slate-700 space-y-3">
+                <div className="flex items-center space-x-2 text-slate-300">
+                  <Video className="w-5 h-5" />
+                  <span className="font-medium">ミラーカメラ（サーバー）</span>
+                  <span className="text-xs text-slate-500">プロジェクション用</span>
+                </div>
+                <div className="relative">
+                  <select
+                    value={mirrorCameraIndex}
+                    onChange={(e) => switchMirrorCamera(Number(e.target.value))}
+                    className="w-full px-4 py-3 bg-slate-900 border border-slate-600 rounded-xl text-slate-200 focus:outline-none focus:border-emerald-500 transition-colors appearance-none cursor-pointer"
+                  >
+                    {mirrorCameras.map((cam) => (
+                      <option key={cam.index} value={cam.index}>
+                        {cam.name} ({cam.resolution})
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                </div>
+              </div>
+            )}
+
             {errorMsg && (
-              <div className="bg-red-500/20 text-red-300 px-4 py-3 rounded-lg border border-red-500/30 text-sm w-full">
-                {errorMsg}
+              <div className="bg-red-500/20 text-red-300 px-4 py-3 rounded-lg border border-red-500/30 text-sm w-full flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p>{errorMsg}</p>
+                  {lastImageRef.current && (
+                    <button
+                      onClick={retryAnalysis}
+                      className="mt-2 inline-flex items-center gap-1.5 px-4 py-2 bg-red-500/30 hover:bg-red-500/40 text-red-200 rounded-lg text-sm font-medium transition-colors"
+                    >
+                      <RotateCcw className="w-4 h-4" />
+                      もう一度試す
+                    </button>
+                  )}
+                </div>
               </div>
             )}
 
@@ -453,6 +722,21 @@ export default function Home() {
                   <div className="w-4 h-4 rounded-full bg-red-500 animate-pulse" />
                 </div>
               </button>
+
+              {/* カメラ切り替えボタン (複数カメラがある場合のみ表示) */}
+              {videoDevices.length > 1 && (
+                <button
+                  onClick={() => {
+                    const currentIdx = videoDevices.findIndex((d) => d.deviceId === selectedDeviceId);
+                    const nextIdx = (currentIdx + 1) % videoDevices.length;
+                    switchCamera(videoDevices[nextIdx].deviceId);
+                  }}
+                  className="p-4 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
+                  title="カメラを切り替え"
+                >
+                  <RefreshCcw className="w-5 h-5" />
+                </button>
+              )}
             </div>
           </motion.div>
         )}
@@ -494,6 +778,21 @@ export default function Home() {
                 <p className="text-emerald-400/70 text-sm">
                   好み: {selectedTags.join("・")}
                 </p>
+              )}
+              {analyzeTimedOut && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="mt-4 bg-amber-500/20 text-amber-300 px-4 py-3 rounded-lg border border-amber-500/30 text-sm"
+                >
+                  <p>解析に時間がかかっています...もう少しお待ちください。</p>
+                  <button
+                    onClick={() => { setAppState("PREFERENCE"); setErrorMsg("解析をキャンセルしました。"); }}
+                    className="mt-2 px-4 py-2 bg-amber-500/30 hover:bg-amber-500/40 rounded-lg text-sm font-medium transition-colors"
+                  >
+                    キャンセルして戻る
+                  </button>
+                </motion.div>
               )}
             </div>
           </motion.div>
@@ -571,6 +870,14 @@ export default function Home() {
               </div>
             </div>
 
+            {/* 部分成功の警告 */}
+            {warningMsg && (
+              <div className="w-full bg-amber-500/20 text-amber-300 px-4 py-3 rounded-lg border border-amber-500/30 text-sm flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                {warningMsg}
+              </div>
+            )}
+
             {/* 下部: 各パターンの提案と商品リスト */}
             <div className="w-full space-y-8">
               <h3 className="text-2xl font-bold flex items-center">
@@ -599,7 +906,14 @@ export default function Home() {
                           <div key={product.id} className="bg-slate-900 rounded-xl overflow-hidden border border-slate-700 hover:border-emerald-500/50 transition-colors group flex items-start gap-4 p-3">
                             <div className="w-20 h-20 flex-shrink-0 relative rounded-lg overflow-hidden bg-slate-800">
                               {product.image_url ? (
-                                <img src={product.image_url} alt={product.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                                <Image
+                                  src={product.image_url}
+                                  alt={product.title}
+                                  fill
+                                  sizes="80px"
+                                  className="object-cover group-hover:scale-105 transition-transform duration-500"
+                                  loading="lazy"
+                                />
                               ) : (
                                 <div className="absolute inset-0 flex items-center justify-center text-slate-600 text-xs">No Image</div>
                               )}
@@ -607,14 +921,17 @@ export default function Home() {
                             <div className="flex-1 min-w-0">
                               <h5 className="font-bold text-sm text-slate-200 line-clamp-2" title={product.title}>{product.title}</h5>
                               <p className="text-emerald-400 font-bold mt-1 text-sm">{product.price}</p>
-                              <a
-                                href={product.url}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="mt-2 inline-block px-3 py-1 bg-slate-700 hover:bg-slate-600 text-xs text-white rounded font-medium transition-colors"
-                              >
-                                詳細
-                              </a>
+                              <div className="flex gap-2 mt-2">
+                                <a
+                                  href={product.url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-block px-3 py-1 bg-slate-700 hover:bg-slate-600 text-xs text-white rounded font-medium transition-colors"
+                                >
+                                  詳細
+                                </a>
+                                <QRCodeButton url={product.url} productTitle={product.title} />
+                              </div>
                             </div>
                           </div>
                         ))

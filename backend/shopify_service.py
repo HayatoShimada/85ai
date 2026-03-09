@@ -15,7 +15,7 @@ def search_products_on_shopify(keywords: list[str]) -> dict:
         return {"status": "error", "message": "Shopify credentials missing", "products": []}
 
     # Storefront APIのGraphQLエンドポイント
-    endpoint = f"https://{shopify_url}/api/2024-01/graphql.json"
+    endpoint = f"https://{shopify_url}/api/2026-01/graphql.json"
     
     headers = {
         "Content-Type": "application/json",
@@ -70,7 +70,7 @@ def search_products_on_shopify(keywords: list[str]) -> dict:
     }
 
     try:
-        response = requests.post(endpoint, headers=headers, json=payload)
+        response = requests.post(endpoint, headers=headers, json=payload, timeout=15)
         response.raise_for_status()
         
         data = response.json()

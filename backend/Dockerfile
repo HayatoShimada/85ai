@@ -2,13 +2,9 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# OpenCVに必要なシステムライブラリをインストール
-RUN apt-get update && apt-get install -y \
-    libglib2.0-0 \
-    libsm6 \
-    libxext6 \
-    libxrender-dev \
-    libgl1-mesa-glx \
+# mediapipe / opencv が必要とするシステムライブラリ
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1 libglib2.0-0 libxcb1 libxext6 libxrender1 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

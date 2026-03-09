@@ -6,15 +6,16 @@ Shopify Admin API (GraphQL) を使った顧客管理サービス
 import os
 import json
 import requests
+from shopify_auth import token_manager
 
 
 def _get_admin_api_config():
-    """Shopify Admin API の接続設定を取得"""
+    """Shopify Admin API の接続設定を取得（トークン自動更新対応）"""
     store_url = os.getenv("SHOPIFY_STORE_URL")
-    admin_token = os.getenv("SHOPIFY_ADMIN_API_ACCESS_TOKEN")
+    admin_token = token_manager.get_token()
     if not store_url or not admin_token:
         return None, None, None
-    endpoint = f"https://{store_url}/admin/api/2025-01/graphql.json"
+    endpoint = f"https://{store_url}/admin/api/2026-01/graphql.json"
     headers = {
         "Content-Type": "application/json",
         "X-Shopify-Access-Token": admin_token,
@@ -55,7 +56,7 @@ def search_customer_by_email(email: str) -> dict | None:
     }
 
     try:
-        response = requests.post(endpoint, headers=headers, json=payload)
+        response = requests.post(endpoint, headers=headers, json=payload, timeout=15)
         response.raise_for_status()
         data = response.json()
 
@@ -69,7 +70,7 @@ def search_customer_by_email(email: str) -> dict | None:
 
         return {
             "id": node["id"],
-            "name": f"{node.get('firstName', '')} {node.get('lastName', '')}".strip(),
+            "name": f"{node.get('firstName') or ''} {node.get('lastName') or ''}".strip(),
             "email": node["email"],
             "style_preferences": preferences,
         }
@@ -129,7 +130,7 @@ def create_customer(name: str, email: str, preferences: list[str]) -> dict | Non
     }
 
     try:
-        response = requests.post(endpoint, headers=headers, json=payload)
+        response = requests.post(endpoint, headers=headers, json=payload, timeout=15)
         response.raise_for_status()
         data = response.json()
 
@@ -142,7 +143,7 @@ def create_customer(name: str, email: str, preferences: list[str]) -> dict | Non
         customer = result.get("customer", {})
         return {
             "id": customer["id"],
-            "name": f"{customer.get('firstName', '')} {customer.get('lastName', '')}".strip(),
+            "name": f"{customer.get('firstName') or ''} {customer.get('lastName') or ''}".strip(),
             "email": customer["email"],
             "style_preferences": preferences,
             "is_new": True,
@@ -196,7 +197,7 @@ def update_customer_preferences(customer_id: str, preferences: list[str]) -> dic
     }
 
     try:
-        response = requests.post(endpoint, headers=headers, json=payload)
+        response = requests.post(endpoint, headers=headers, json=payload, timeout=15)
         response.raise_for_status()
         data = response.json()
 
@@ -209,7 +210,7 @@ def update_customer_preferences(customer_id: str, preferences: list[str]) -> dic
         customer = result.get("customer", {})
         return {
             "id": customer["id"],
-            "name": f"{customer.get('firstName', '')} {customer.get('lastName', '')}".strip(),
+            "name": f"{customer.get('firstName') or ''} {customer.get('lastName') or ''}".strip(),
             "email": customer["email"],
             "style_preferences": preferences,
             "is_new": False,
