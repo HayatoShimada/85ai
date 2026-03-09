@@ -6,8 +6,11 @@ Client Credentials Grant でトークンを自動取得・更新する
 
 import os
 import time
-import requests
-import threading
+import logging
+import asyncio
+import httpx
+
+logger = logging.getLogger(__name__)
 
 
 class ShopifyTokenManager:
@@ -16,21 +19,21 @@ class ShopifyTokenManager:
     def __init__(self):
         self._token: str | None = None
         self._expires_at: float = 0
-        self._lock = threading.Lock()
+        self._lock = asyncio.Lock()
 
-    def get_token(self) -> str | None:
+    async def get_token(self) -> str | None:
         """有効なAdmin APIトークンを返す。期限切れなら自動更新する。"""
         # 期限の5分前に更新（余裕を持たせる）
         if self._token and time.time() < self._expires_at - 300:
             return self._token
 
-        with self._lock:
-            # ダブルチェック（別スレッドが既に更新した場合）
+        async with self._lock:
+            # ダブルチェック（別タスクが既に更新した場合）
             if self._token and time.time() < self._expires_at - 300:
                 return self._token
-            return self._refresh()
+            return await self._refresh()
 
-    def _refresh(self) -> str | None:
+    async def _refresh(self) -> str | None:
         """Client Credentials Grantでトークンを再取得する"""
         store_url = os.getenv("SHOPIFY_STORE_URL")
         client_id = os.getenv("SHOPIFY_CLIENT_ID")
@@ -46,26 +49,30 @@ class ShopifyTokenManager:
             return None
 
         try:
-            resp = requests.post(
-                f"https://{store_url}/admin/oauth/access_token",
-                data={
-                    "client_id": client_id,
-                    "client_secret": client_secret,
-                    "grant_type": "client_credentials",
-                },
-                timeout=15,
-            )
-            resp.raise_for_status()
-            data = resp.json()
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    f"https://{store_url}/admin/oauth/access_token",
+                    data={
+                        "client_id": client_id,
+                        "client_secret": client_secret,
+                        "grant_type": "client_credentials",
+                    },
+                    timeout=15,
+                )
+                resp.raise_for_status()
+                data = resp.json()
 
             self._token = data["access_token"]
             self._expires_at = time.time() + data.get("expires_in", 86399)
-            print(f"Shopify Admin API token refreshed (expires in {data.get('expires_in', '?')}s)")
+            logger.info(f"Shopify Admin API token refreshed (expires in {data.get('expires_in', '?')}s)")
             return self._token
 
         except Exception as e:
-            print(f"Failed to refresh Shopify Admin API token: {e}")
-            # 既存トークンがまだ使えるかもしれないので返す
+            logger.error(f"Failed to refresh Shopify Admin API token: {e}")
+            # 期限切れトークンはクリア（期限内なら保持）
+            if self._token and time.time() >= self._expires_at:
+                self._token = None
+                self._expires_at = 0
             return self._token
 
 

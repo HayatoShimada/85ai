@@ -1,15 +1,22 @@
 import os
 import io
 import json
-import google.generativeai as genai
+import logging
+from google import genai
+from google.genai import types
 from PIL import Image
 from pydantic import BaseModel, Field
 
-# APIキーの設定
-# main.py側でload_dotenv()が呼ばれている前提
-api_key = os.getenv("GEMINI_API_KEY")
-if api_key:
-    genai.configure(api_key=api_key)
+logger = logging.getLogger(__name__)
+
+# Gemini クライアント初期化
+_api_key = os.getenv("GEMINI_API_KEY")
+_client = genai.Client(api_key=_api_key) if _api_key else None
+
+
+class GeminiAnalysisError(Exception):
+    """Gemini API 解析中のエラー"""
+    pass
 
 # Geminiに期待するJSON出力スキーマをPydanticで定義
 class RecommendationItem(BaseModel):
@@ -31,13 +38,16 @@ class ClothingAnalysis(BaseModel):
 def analyze_image_and_get_tags(image_bytes: bytes, user_preferences: list[str] | None = None) -> str:
     """
     画像データとユーザーの好みタグを受け取り、Gemini 3.1 Proで解析して
-    Shopifyでの検索キーワードや提案の理由などを返す。JSON文字列として返す関数
+    Shopifyでの検索キーワードや提案の理由などを返す。JSON文字列として返す。
+
+    Raises:
+        GeminiAnalysisError: API呼び出しに失敗した場合
     """
+    if not _client:
+        raise GeminiAnalysisError("GEMINI_API_KEY が設定されていません")
+
     try:
         image = Image.open(io.BytesIO(image_bytes))
-
-        # gemini-3.1-pro モデルの準備
-        model = genai.GenerativeModel("gemini-3.1-pro")
 
         # ユーザーの好みをプロンプトに組み込む
         if user_preferences:
@@ -59,27 +69,20 @@ def analyze_image_and_get_tags(image_bytes: bytes, user_preferences: list[str] |
         出力はJSON形式で行ってください。
         """
 
-        response = model.generate_content(
-            [prompt, image],
-            generation_config=genai.GenerationConfig(
+        response = _client.models.generate_content(
+            model="gemini-3.1-pro",
+            contents=[prompt, image],
+            config=types.GenerateContentConfig(
                 response_mime_type="application/json",
-                response_schema=ClothingAnalysis
+                response_schema=ClothingAnalysis,
             ),
-            request_options={"timeout": 60},
         )
 
         return response.text
+    except GeminiAnalysisError:
+        raise
     except Exception as e:
-        print(f"Error in Gemini API: {e}")
-        error_type = type(e).__name__
+        logger.error(f"Gemini API error: {e}")
         if "timeout" in str(e).lower() or "deadline" in str(e).lower():
-            error_msg = "AI解析がタイムアウトしました。もう一度お試しください。"
-        else:
-            error_msg = f"AI解析中にエラーが発生しました（{error_type}）"
-        return json.dumps({
-            "analyzed_outfit": error_msg,
-            "detected_style": [],
-            "box_ymin": 0, "box_xmin": 0, "box_ymax": 1000, "box_xmax": 1000,
-            "recommendations": [],
-            "_error": True,
-        }, ensure_ascii=False)
+            raise GeminiAnalysisError("AI解析がタイムアウトしました。もう一度お試しください。") from e
+        raise GeminiAnalysisError(f"AI解析中にエラーが発生しました（{type(e).__name__}）") from e

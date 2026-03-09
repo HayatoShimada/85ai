@@ -7,7 +7,7 @@
 来店客の服装をカメラで撮影 → AIが解析 → Shopifyのリアルタイム在庫から相性の良い古着を提案します。
 
 ### 本番構成
-- **Mac Studio**: バックエンド実行 + USBカメラ（ミラー用）
+- **Mac Studio (Apple Silicon)**: バックエンド実行 + USBカメラ（ミラー用、Neural Engine でリアルタイムセグメンテーション）
 - **iPad**: ブラウザベースの操作UI（タッチスクリーン）
 - **プロジェクター**: 演出画面を投影
 
@@ -20,7 +20,7 @@
 2. **パーソナライズ提案** — ユーザーの好みタグ（スタイル・年代感等）を加味した最大3パターンの提案
 3. **Shopifyリアルタイム連携** — Storefront API (GraphQL) で在庫がある商品のみを検索・表示
 4. **顧客管理** — Admin API で好みデータをメタフィールドに保存、リピーターの好み自動復元
-5. **ミラー演出** — USBカメラ + MediaPipeで人物切り抜き → プロジェクターにリアルタイム投影
+5. **ミラー演出** — USBカメラ + Apple Vision (Neural Engine) で人物切り抜き → 1920x1080@30fps でプロジェクターにリアルタイム投影
 6. **プロジェクション同期** — iPad操作とプロジェクター表示をWebSocketで別デバイス間同期
 7. **QRコード** — 各商品のShopify URLをQR表示 → スマホで読み取ってEC購入
 8. **音声読み上げ** — 解析結果をWeb Speech APIで日本語読み上げ
@@ -34,7 +34,7 @@
 | 商品検索 | Shopify Storefront API (GraphQL, `2026-01`) |
 | 顧客管理 | Shopify Admin API (GraphQL, `2026-01`) |
 | 認証 | Client Credentials Grant + 自動トークン更新 |
-| ミラー | OpenCV + MediaPipe Selfie Segmentation |
+| ミラー | OpenCV + Apple Vision Framework (Neural Engine) / MediaPipe (フォールバック) |
 | フロントエンド | Next.js 16 (React 19), Tailwind CSS v4, Framer Motion |
 | コンテナ | Docker Compose |
 | テスト | pytest (25テスト) |
@@ -104,9 +104,9 @@ docker compose exec backend pytest tests/ -v
 | [SPEC.md](SPEC.md) | 現状仕様書（API詳細、型定義、全サービス仕様） |
 | [DESIGN.md](DESIGN.md) | システム設計ドキュメント |
 | [PROJECTION_DESIGN.md](PROJECTION_DESIGN.md) | プロジェクション演出画面の設計 |
-| [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) | 4段階実装計画（全Phase完了） |
+| [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) | 6段階実装計画（全Phase完了） |
 
 ## WSL2 固有の注意点
 
 - **カメラ**: WSL2からUSBカメラを使うには `usbipd-win` が必要。ブラウザカメラ（`getUserMedia`）は問題なく動作
-- **ミラーカメラ**: Docker内からホストカメラへのアクセスには `devices:` 設定が必要（Linuxのみ）。Mac StudioではバックエンドをネイティブBash実行推奨
+- **ミラーカメラ**: Docker内からホストカメラへのアクセスには `devices:` 設定が必要（Linuxのみ）。Mac StudioではバックエンドをネイティブBash実行推奨（Neural Engine + カメラアクセスのため）

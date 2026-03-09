@@ -4,26 +4,30 @@ APIクレデンシャル未設定時の挙動とレスポンスパースのテ�
 """
 
 import os
-from unittest.mock import patch, MagicMock
+import pytest
+from unittest.mock import patch, MagicMock, AsyncMock
 from shopify_service import search_products_on_shopify
 
 
-def test_missing_credentials_returns_error():
+@pytest.mark.asyncio
+async def test_missing_credentials_returns_error():
     """Shopifyクレデンシャルが未設定の場合、エラーを返すこと"""
     with patch.dict(os.environ, {}, clear=True):
-        result = search_products_on_shopify(["テスト"])
+        result = await search_products_on_shopify(["テスト"])
         assert result["status"] == "error"
         assert result["products"] == []
 
 
-def test_empty_keywords_returns_empty():
+@pytest.mark.asyncio
+async def test_empty_keywords_returns_empty():
     """空のキーワードリストでも落ちないこと"""
     with patch.dict(os.environ, {}, clear=True):
-        result = search_products_on_shopify([])
+        result = await search_products_on_shopify([])
         assert result["products"] == []
 
 
-def test_successful_response_parsing():
+@pytest.mark.asyncio
+async def test_successful_response_parsing():
     """正常なShopifyレスポンスをパースできること"""
     mock_shopify_response = {
         "data": {
@@ -74,6 +78,11 @@ def test_successful_response_parsing():
     mock_response.json.return_value = mock_shopify_response
     mock_response.raise_for_status = MagicMock()
 
+    mock_client = AsyncMock()
+    mock_client.post.return_value = mock_response
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+
     with patch.dict(
         os.environ,
         {
@@ -81,8 +90,8 @@ def test_successful_response_parsing():
             "SHOPIFY_STOREFRONT_ACCESS_TOKEN": "test-token",
         },
     ):
-        with patch("shopify_service.requests.post", return_value=mock_response):
-            result = search_products_on_shopify(["テスト"])
+        with patch("shopify_service.httpx.AsyncClient", return_value=mock_client):
+            result = await search_products_on_shopify(["テスト"])
 
     assert result["status"] == "success"
     # availableForSale=False の商品はフィルタされること
@@ -93,10 +102,16 @@ def test_successful_response_parsing():
     assert product["image_url"] == "https://example.com/img.jpg"
 
 
-def test_api_error_handling():
+@pytest.mark.asyncio
+async def test_api_error_handling():
     """Shopify APIがエラーを返した場合に安全に処理されること"""
     mock_response = MagicMock()
     mock_response.raise_for_status.side_effect = Exception("API Error")
+
+    mock_client = AsyncMock()
+    mock_client.post.return_value = mock_response
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
 
     with patch.dict(
         os.environ,
@@ -105,8 +120,8 @@ def test_api_error_handling():
             "SHOPIFY_STOREFRONT_ACCESS_TOKEN": "test-token",
         },
     ):
-        with patch("shopify_service.requests.post", return_value=mock_response):
-            result = search_products_on_shopify(["テスト"])
+        with patch("shopify_service.httpx.AsyncClient", return_value=mock_client):
+            result = await search_products_on_shopify(["テスト"])
 
     assert result["status"] == "error"
     assert result["products"] == []

@@ -9,8 +9,11 @@ qualityLevel:
 """
 
 import platform
+import logging
 import numpy as np
 import cv2
+
+logger = logging.getLogger(__name__)
 
 VISION_AVAILABLE = False
 
@@ -65,7 +68,7 @@ class AppleVisionSegmenter:
             fmt = 0x4C303038  # 'L008' in FourCC
         self._request.setOutputPixelFormat_(fmt)
 
-        print(f"AppleVisionSegmenter: quality={self._QUALITY_NAMES.get(quality, quality)}")
+        logger.info(f"AppleVisionSegmenter: quality={self._QUALITY_NAMES.get(quality, quality)}")
 
     def process(self, frame_bgr: np.ndarray) -> np.ndarray | None:
         """
@@ -86,7 +89,7 @@ class AppleVisionSegmenter:
         )
         success, error = handler.performRequests_error_([self._request], None)
         if not success:
-            print(f"Vision segmentation error: {error}")
+            logger.error(f"Vision segmentation error: {error}")
             return None
 
         results = self._request.results()
@@ -143,7 +146,7 @@ class AppleVisionSegmenter:
             # バッファメモリをロック (読み取り専用)
             status = CoreVideo.CVPixelBufferLockBaseAddress(pixel_buffer, 0x00000001)
             if status != 0:
-                print(f"CVPixelBufferLockBaseAddress failed: {status}")
+                logger.error(f"CVPixelBufferLockBaseAddress failed: {status}")
                 return None
 
             try:
@@ -174,5 +177,5 @@ class AppleVisionSegmenter:
                 CoreVideo.CVPixelBufferUnlockBaseAddress(pixel_buffer, 0x00000001)
 
         except Exception as e:
-            print(f"CVPixelBuffer → numpy conversion error: {e}")
+            logger.error(f"CVPixelBuffer → numpy conversion error: {e}")
             return None

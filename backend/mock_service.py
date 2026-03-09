@@ -3,7 +3,7 @@
 環境変数 MOCK_MODE=true で有効化
 """
 
-import time
+import asyncio
 import random
 
 MOCK_ANALYSIS = {
@@ -84,7 +84,7 @@ MOCK_ANALYSIS = {
 MOCK_CUSTOMER_DB = {}
 
 
-def get_mock_analysis(preferences: list[str] | None = None) -> dict:
+async def get_mock_analysis(preferences: list[str] | None = None) -> dict:
     """モック解析結果を返す。好みタグがあれば結果テキストに反映する。"""
     result = dict(MOCK_ANALYSIS)
     if preferences:
@@ -94,7 +94,7 @@ def get_mock_analysis(preferences: list[str] | None = None) -> dict:
             f"お客様の好み（{pref_text}）を考慮した提案を行います。"
         )
     # 少し待機して実際のAPI呼び出しをシミュレート
-    time.sleep(random.uniform(0.5, 1.5))
+    await asyncio.sleep(random.uniform(0.5, 1.5))
     return result
 
 

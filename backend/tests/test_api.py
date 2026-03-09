@@ -106,17 +106,12 @@ async def test_analyze_invalid_preferences_json(client, dummy_image_bytes):
 async def test_analyze_gemini_error_returns_error(client, dummy_image_bytes):
     """Geminiがエラーを返した場合にerrorステータスが返ること（非モック）"""
     import os
+    from gemini_service import GeminiAnalysisError
 
     with patch.dict(os.environ, {"MOCK_MODE": "false"}):
         with patch(
-            "main.analyze_image_and_get_tags",
-            return_value=json.dumps({
-                "analyzed_outfit": "AI解析がタイムアウトしました。もう一度お試しください。",
-                "detected_style": [],
-                "box_ymin": 0, "box_xmin": 0, "box_ymax": 1000, "box_xmax": 1000,
-                "recommendations": [],
-                "_error": True,
-            }),
+            "routers.analyze.analyze_image_and_get_tags",
+            side_effect=GeminiAnalysisError("AI解析がタイムアウトしました。もう一度お試しください。"),
         ):
             res = await client.post(
                 "/api/analyze",
@@ -131,6 +126,7 @@ async def test_analyze_gemini_error_returns_error(client, dummy_image_bytes):
 async def test_analyze_shopify_partial_failure(client, dummy_image_bytes):
     """Shopify検索が部分的に失敗しても解析結果は返ること（非モック）"""
     import os
+    from unittest.mock import AsyncMock
 
     mock_gemini_result = json.dumps({
         "analyzed_outfit": "テスト服装",
@@ -141,12 +137,11 @@ async def test_analyze_shopify_partial_failure(client, dummy_image_bytes):
         ],
     })
 
-    def mock_shopify_error(keywords):
-        raise Exception("Shopify connection timeout")
+    mock_shopify_error = AsyncMock(side_effect=Exception("Shopify connection timeout"))
 
     with patch.dict(os.environ, {"MOCK_MODE": "false"}):
-        with patch("main.analyze_image_and_get_tags", return_value=mock_gemini_result):
-            with patch("main.search_products_on_shopify", side_effect=mock_shopify_error):
+        with patch("routers.analyze.analyze_image_and_get_tags", return_value=mock_gemini_result):
+            with patch("routers.analyze.search_products_on_shopify", mock_shopify_error):
                 res = await client.post(
                     "/api/analyze",
                     files={"file": ("test.jpg", dummy_image_bytes, "image/jpeg")},

@@ -96,12 +96,9 @@ def test_clothing_analysis_json_roundtrip():
     assert restored.box_ymin == analysis.box_ymin
 
 
-def test_error_response_is_valid_json():
-    """gemini_serviceのエラー時レスポンスがパース可能であること"""
-    error_json = '{"analyzed_outfit": "AI解析中にエラーが発生しました（TestError）", "detected_style": [], "box_ymin": 0, "box_xmin": 0, "box_ymax": 1000, "box_xmax": 1000, "recommendations": [], "_error": true}'
-    data = json.loads(error_json)
-    # _errorフラグを除去してもClothingAnalysisとしてパースできること
-    data.pop("_error", None)
-    analysis = ClothingAnalysis(**data)
-    assert "エラー" in analysis.analyzed_outfit
-    assert analysis.recommendations == []
+def test_gemini_analysis_error():
+    """GeminiAnalysisError が正しく生成されること"""
+    from gemini_service import GeminiAnalysisError
+    err = GeminiAnalysisError("テストエラー")
+    assert str(err) == "テストエラー"
+    assert isinstance(err, Exception)

@@ -56,6 +56,20 @@
 - [x] 顧客名のNone混入バグ修正 (get('firstName', '') → get('firstName') or '')
 - [x] SSRハイドレーション不一致修正 (Math.random() → 固定シード値)
 
+### Phase 6 実装状況（ミラー高画質化・Neural Engine対応）
+- [x] Apple Vision Framework 統合 (vision_segmenter.py: PyObjC経由でNeural Engine活用)
+- [x] セグメンテーションバックエンド自動選択 (macOS→Vision, Linux→MediaPipe)
+- [x] 解像度を1920x1080、FPSを30に引き上げ
+- [x] PNG → WebPエンコードに変更 (3-5倍高速、ファイルサイズ削減)
+- [x] MediaPipeモデルをLandscape(256x256)に変更 (セグメンテーション精度向上)
+- [x] マスク後処理追加 (閾値 + ガウシアンブラーでエッジ平滑化)
+- [x] セグメンテーション縮小処理 (MediaPipe: フル解像度→640幅で処理→マスク拡大)
+- [x] カメラ入力をMJPEG優先に変更 (USB帯域効率向上)
+- [x] 適応スリープ (処理時間を差し引いてFPS維持)
+- [x] PyObjC依存をmacOS条件付きで追加 (requirements.txt)
+- [x] 環境変数追加 (MIRROR_SEGMENTER, VISION_QUALITY, SEG_WIDTH, WEBP_QUALITY, MASK_BLUR, MASK_THRESHOLD)
+- [x] フロントエンド画像フォーマットをWebPに更新
+
 ---
 
 ## Phase 1: Ubuntu環境の基盤整備（最優先）
