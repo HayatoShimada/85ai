@@ -24,6 +24,7 @@ export default function Home() {
   const [appState, setAppState] = useState<AppState>("IDLE");
   
   // ユーザー設定状態
+  const [customerId, setCustomerId] = useState<string | null>(null);
   const [userName, setUserName] = useState<string>("");
   const [userEmail, setUserEmail] = useState<string>("");
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
@@ -93,7 +94,7 @@ export default function Home() {
 
   // 画像をAPIに送信し、結果を受け取る
   const processImageRequest = useCallback(
-    async (imageBlob: Blob, dataUrl: string) => {
+    async (imageBlob: Blob, dataUrl: string, overrideCustomerId?: string | null) => {
       setCapturedImage(dataUrl);
       setLastImageBlob(imageBlob);
       changeState("ANALYZING");
@@ -102,7 +103,8 @@ export default function Home() {
          setAnalyzeTimedOut(true);
       }, 30000);
 
-      const result = await api.sendImageToAPI(imageBlob, dataUrl, selectedTags, userName, userEmail);
+      const targetCustomerId = overrideCustomerId !== undefined ? overrideCustomerId : customerId;
+      const result = await api.sendImageToAPI(imageBlob, dataUrl, selectedTags, targetCustomerId);
       clearTimeout(timeoutId);
 
       if (result && result.data) {
@@ -119,7 +121,7 @@ export default function Home() {
         changeState("RESULT");
       }
     },
-    [api, selectedTags, userName, userEmail, changeState]
+    [api, selectedTags, customerId, changeState]
   );
 
   // -------------------------
@@ -128,11 +130,17 @@ export default function Home() {
 
   const handleLookupCustomer = async () => {
     if (!userEmail) return;
-    const prefs = await api.lookupCustomerPreferences(userEmail);
-    if (prefs.length > 0) setSelectedTags(prefs);
+    const cust = await api.lookupCustomer(userEmail);
+    if (cust) {
+      setCustomerId(cust.id);
+      if (cust.name) setUserName(cust.name);
+      if (cust.style_preferences?.length > 0) setSelectedTags(cust.style_preferences);
+    }
   };
 
-  const handleProceedToCamera = () => {
+  const handleProceedToCamera = async () => {
+    const cid = await api.registerCustomer(userName, userEmail, selectedTags);
+    if (cid) setCustomerId(cid);
     camera.startCamera(camera.selectedCameraId);
     changeState("CAMERA_ACTIVE");
   };
@@ -169,13 +177,15 @@ export default function Home() {
     // (※ 実際の利用では ref に登録して使用)
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      const cid = await api.registerCustomer(userName, userEmail, selectedTags);
+      if (cid) setCustomerId(cid);
       const reader = new FileReader();
       reader.onloadend = () => {
         if (reader.result) {
-          processImageRequest(file, reader.result as string);
+          processImageRequest(file, reader.result as string, cid || customerId);
         }
       };
       reader.readAsDataURL(file);

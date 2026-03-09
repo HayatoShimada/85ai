@@ -15,8 +15,7 @@ export function useBackendAPI() {
     imageBlob: Blob, 
     previewUrl: string, 
     selectedTags: string[], 
-    userName: string, 
-    userEmail: string
+    customerId: string | null
   ): Promise<{ data: ClothingAnalysis; warning?: string } | null> => {
     setIsAnalyzing(true);
     setAnalyzeError(null);
@@ -24,8 +23,7 @@ export function useBackendAPI() {
     const formData = new FormData();
     formData.append("file", imageBlob, "capture.webp");
     formData.append("preferences", JSON.stringify(selectedTags));
-    if (userName) formData.append("customer_name", userName);
-    if (userEmail) formData.append("customer_email", userEmail);
+    if (customerId) formData.append("customer_id", customerId);
 
     try {
       const res = await fetch(`${API_URL}/api/analyze`, {
@@ -49,19 +47,50 @@ export function useBackendAPI() {
   }, []);
 
   /**
-   * メールアドレスで既存顧客の好みを復元する
+   * メールアドレスで既存顧客を検索し、情報を返す
    */
-  const lookupCustomerPreferences = useCallback(async (email: string) => {
+  const lookupCustomer = useCallback(async (email: string) => {
     try {
       const res = await fetch(`${API_URL}/api/customers?email=${encodeURIComponent(email)}`);
       if (res.ok) {
         const data = await res.json();
-        return data.preferences || []; // 取得したタグ配列を返す
+        return data.customer || null;
       }
     } catch (err) {
       console.error("Failed to lookup customer:", err);
     }
-    return [];
+    return null;
+  }, []);
+
+  /**
+   * お客様情報の登録・更新アクション
+   */
+  const registerCustomer = useCallback(async (
+    userName: string,
+    userEmail: string,
+    selectedTags: string[]
+  ): Promise<string | null> => {
+    if (!userName.trim() || !userEmail.trim()) return null;
+    const formData = new FormData();
+    formData.append("name", userName);
+    formData.append("email", userEmail);
+    formData.append("style_preferences", JSON.stringify(selectedTags));
+    
+    try {
+      const res = await fetch(`${API_URL}/api/customers`, {
+        method: "POST",
+        body: formData,
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.status === "success" && data.customer) {
+          return data.customer.id;
+        }
+      }
+    } catch (err) {
+      console.error("Customer registration error:", err);
+    }
+    return null;
   }, []);
 
   /**
@@ -109,7 +138,8 @@ export function useBackendAPI() {
     isAnalyzing,
     analyzeError,
     sendImageToAPI,
-    lookupCustomerPreferences,
+    lookupCustomer,
+    registerCustomer,
     fetchMirrorCameras,
     switchMirrorCamera,
     checkHealth,
