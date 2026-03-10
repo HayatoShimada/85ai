@@ -68,7 +68,7 @@ class ProductCatalogCache:
                     logger.warning("No products fetched from Shopify")
                     return
 
-                gemini_lines = ["ID\tType\tTitle\tAttributes"]
+                gemini_lines = ["ID\tType\tTitle\tAttributes\tSize"]
                 full_map: dict[int, dict] = {}
 
                 idx = 0
@@ -161,6 +161,7 @@ class ProductCatalogCache:
                         styleMf: metafield(namespace: "custom", key: "style") {{ value }}
                         eraMf: metafield(namespace: "custom", key: "era") {{ value }}
                         featuresMf: metafield(namespace: "custom", key: "features") {{ value }}
+                        measurementsMf: metafield(namespace: "custom", key: "measurements") {{ value }}
                       }}
                     }}
                     pageInfo {{ hasNextPage endCursor }}
@@ -226,7 +227,24 @@ class ProductCatalogCache:
                 if tag not in ("USED", "NEW") and tag not in attrs:
                     attrs.append(tag)
 
-        return f"{idx}\t{ptype}\t{title}\t{','.join(attrs)}"
+        # 採寸データ (compact format)
+        meas_raw = (product.get("measurementsMf") or {}).get("value", "")
+        meas_str = ""
+        if meas_raw:
+            try:
+                meas = json.loads(meas_raw)
+                if "sizes" in meas:
+                    parts = []
+                    for sz, data in meas["sizes"].items():
+                        items = [f"{k}{v}" for k, v in data.items()]
+                        parts.append(f"{sz}:{'/'.join(items)}")
+                    meas_str = " ".join(parts)
+                else:
+                    meas_str = ",".join(f"{k}{v}" for k, v in meas.items())
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        return f"{idx}\t{ptype}\t{title}\t{','.join(attrs)}\t{meas_str}"
 
     @staticmethod
     def _build_full_product(idx: int, product: dict) -> dict:

@@ -81,8 +81,13 @@ def analyze_image_and_get_tags(image_bytes: bytes, user_preferences: list[str] |
         【体型情報】
         {', '.join(parts)}
 
-        上記の体型に合うサイズ感の商品を優先的に提案してください。
-        提案理由にはサイズ適合についても言及してください。"""
+        【サイズマッチングルール】
+        カタログのSize列に実寸データがある商品については以下の基準で判断:
+        - トップス: 肩幅はユーザー+3〜+8cm、身幅はユーザー胸囲÷2+5〜+15cm
+        - ボトムス: ウエストはユーザー+2〜+5cm
+        - 複数サイズがある商品は最適サイズを選び、提案理由にサイズを明記
+        - サイズが合わない商品はproduct_idsに含めない
+        - 提案理由にサイズフィットの具体数値を言及"""
             else:
                 body_section = ""
         else:
@@ -92,7 +97,7 @@ def analyze_image_and_get_tags(image_bytes: bytes, user_preferences: list[str] |
         if catalog_text:
             catalog_section = f"""
         【店舗の商品カタログ】
-        以下は当店の全商品リスト（ID\\tカテゴリ\\t商品名\\t属性）です。
+        以下は当店の全商品リスト（ID\\tカテゴリ\\t商品名\\t属性\\tサイズ実寸）です。
         提案には必ずこのカタログ内の商品IDをproduct_idsに指定してください。
         カタログにない商品は提案しないでください。
 
