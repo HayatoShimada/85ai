@@ -30,3 +30,6 @@ __pycache__/
 ehthumbs.db
 Thumbs.db
 85ai/
+
+# Git worktrees
+.worktrees/
