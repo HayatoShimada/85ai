@@ -151,7 +151,7 @@ export function ProjectionAnalyzingScene({ payload }: { payload: ProjectionPaylo
        {/* 撮影画像 */}
        {payload.capturedImage && (
          <div className="relative w-1/3 aspect-[3/4] rounded-3xl overflow-hidden border-2 border-[#FF6B35]/50 shadow-[0_0_30px_rgba(255,107,53,0.2)] z-10">
-           <img src={payload.capturedImage} className="w-full h-full object-cover" />
+           <img src={payload.capturedImage} className="w-full h-full object-cover" alt="Captured" />
 
            <motion.div
              animate={{ top: ['0%', '100%', '0%'] }}
