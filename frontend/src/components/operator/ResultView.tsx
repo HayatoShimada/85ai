@@ -1,11 +1,13 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Check, RotateCcw, Sparkles } from "lucide-react";
+import { Check, RotateCcw } from "lucide-react";
 import Image from "next/image";
 import { useState } from "react";
 import QRCode from "../QRCode";
 import { ClothingAnalysis, RecommendationItem } from "@/lib/projection-types";
+import CatIcon from "@/components/icons/CatIcon";
+import { FishIcon } from "@/components/icons/PixelIcons";
 
 interface ResultViewProps {
   analyzedImage: string | null;
@@ -25,10 +27,10 @@ function RecommendationCard({
 }) {
   const [expanded, setExpanded] = useState(true);
   const colors = [
-    { accent: "emerald", bg: "bg-emerald-500/10", border: "border-emerald-500/40", badge: "bg-emerald-500", text: "text-emerald-400" },
-    { accent: "cyan",    bg: "bg-cyan-500/10",    border: "border-cyan-500/40",    badge: "bg-cyan-500",    text: "text-cyan-400" },
-    { accent: "violet",  bg: "bg-violet-500/10",  border: "border-violet-500/40",  badge: "bg-violet-500",  text: "text-violet-400" },
-  ][index] || { accent: "emerald", bg: "bg-emerald-500/10", border: "border-emerald-500/40", badge: "bg-emerald-500", text: "text-emerald-400" };
+    { accent: "primary",    bg: "bg-primary/10",    border: "border-primary/40",    badge: "bg-primary",    text: "text-primary" },
+    { accent: "navy",       bg: "bg-navy/10",       border: "border-navy/40",       badge: "bg-navy",       text: "text-navy" },
+    { accent: "navy-light", bg: "bg-navy-light/10", border: "border-navy-light/40", badge: "bg-navy-light", text: "text-navy-light" },
+  ][index] || { accent: "primary", bg: "bg-primary/10", border: "border-primary/40", badge: "bg-primary", text: "text-primary" };
 
   return (
     <motion.div
@@ -45,15 +47,16 @@ function RecommendationCard({
         <span className={`shrink-0 w-10 h-10 rounded-full ${colors.badge} flex items-center justify-center text-white font-bold text-lg shadow-lg`}>
           {index + 1}
         </span>
+        <FishIcon size={16} />
         <div className="flex-1 min-w-0">
-          <h3 className="text-lg font-bold text-slate-100 truncate">{rec.title}</h3>
+          <h3 className="text-lg font-bold text-text truncate">{rec.title}</h3>
           <span className={`text-xs font-medium ${colors.text}`}>{rec.category}</span>
         </div>
         <span className={`text-xs ${colors.text} shrink-0`}>
           {rec.shopify_products?.length || 0}点
         </span>
         <svg
-          className={`w-5 h-5 text-slate-400 shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`}
+          className={`w-5 h-5 text-text-muted shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`}
           fill="none" viewBox="0 0 24 24" stroke="currentColor"
         >
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -63,7 +66,7 @@ function RecommendationCard({
       {expanded && (
         <div className="px-5 pb-5 space-y-4">
           {/* 提案理由 */}
-          <p className="text-slate-300 text-sm leading-relaxed bg-slate-900/40 p-3 rounded-xl">
+          <p className="text-text-body text-sm leading-relaxed bg-[#F5F6F7] p-3 rounded-xl">
             {rec.reason}
           </p>
 
@@ -73,9 +76,9 @@ function RecommendationCard({
               {rec.shopify_products.map((product) => (
                 <div
                   key={product.id}
-                  className="snap-start shrink-0 w-40 bg-slate-900 rounded-xl overflow-hidden border border-slate-700/50"
+                  className="snap-start shrink-0 w-40 bg-[#F5F6F7] rounded-xl overflow-hidden border border-border"
                 >
-                  <div className="relative aspect-square bg-slate-800">
+                  <div className="relative aspect-square bg-[#F0F4F8]">
                     {product.image_url ? (
                       <Image
                         src={product.image_url}
@@ -85,7 +88,7 @@ function RecommendationCard({
                         className="object-cover"
                       />
                     ) : (
-                      <div className="absolute inset-0 flex items-center justify-center text-slate-600 text-xs">
+                      <div className="absolute inset-0 flex items-center justify-center text-text-muted text-xs">
                         No Image
                       </div>
                     )}
@@ -96,7 +99,7 @@ function RecommendationCard({
                     </div>
                   </div>
                   <div className="p-2.5">
-                    <h5 className="font-medium text-slate-200 text-xs leading-tight line-clamp-2 min-h-[2rem]">
+                    <h5 className="font-medium text-text text-xs leading-tight line-clamp-2 min-h-[2rem]">
                       {product.title}
                     </h5>
                     <QRCode url={product.url} productTitle={product.title} />
@@ -105,7 +108,7 @@ function RecommendationCard({
               ))}
             </div>
           ) : (
-            <p className="text-slate-500 text-sm text-center py-4">該当商品なし</p>
+            <p className="text-text-muted text-sm text-center py-4">該当商品なし</p>
           )}
         </div>
       )}
@@ -125,8 +128,8 @@ export function ResultView({
   if (!recommendation) {
     return (
       <div className="flex flex-col items-center justify-center p-8 space-y-4">
-        <p className="text-red-400">解析データが見つかりません</p>
-        <button onClick={onReset} className="px-4 py-2 bg-slate-800 rounded-lg">
+        <p className="text-primary-dark">解析データが見つかりません</p>
+        <button onClick={onReset} className="px-4 py-2 bg-white border border-border text-text rounded-lg">
           戻る
         </button>
       </div>
@@ -143,18 +146,18 @@ export function ResultView({
       {/* ヘッダー: コンパクト */}
       <div className="flex items-center gap-3">
         <div className="flex-1">
-          <h2 className="text-xl font-bold bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-emerald-400" />
-            AIスタイリング提案
+          <h2 className="text-xl font-bold text-navy flex items-center gap-2">
+            <CatIcon variant="happy" size={28} />
+            おすすめコーデ
           </h2>
           {warningMessage && (
-            <p className="text-amber-400 text-xs mt-1">⚠️ {warningMessage}</p>
+            <p className="text-primary-dark text-xs mt-1">⚠️ {warningMessage}</p>
           )}
         </div>
         <motion.button
           whileTap={{ scale: 0.95 }}
           onClick={onReset}
-          className="flex items-center gap-2 px-5 py-3 bg-slate-800 hover:bg-slate-700 active:bg-slate-600 text-white rounded-xl font-bold text-sm transition-colors border border-slate-700"
+          className="flex items-center gap-2 px-5 py-3 bg-white hover:bg-[#F5F6F7] active:bg-slate-600 text-text rounded-xl font-bold text-sm transition-colors border border-border"
         >
           <RotateCcw className="w-4 h-4" />
           やり直す
@@ -164,7 +167,7 @@ export function ResultView({
       {/* 解析サマリー: 折りたたみ式 */}
       <button
         onClick={() => setShowAnalysis(!showAnalysis)}
-        className="w-full flex items-center gap-3 bg-slate-800/60 backdrop-blur rounded-xl p-3 border border-slate-700/50 active:bg-slate-700/60 transition-colors"
+        className="w-full flex items-center gap-3 bg-[#F5F6F7] rounded-xl p-3 border border-border active:bg-slate-700/60 transition-colors"
       >
         {analyzedImage && (
           <img
@@ -174,22 +177,22 @@ export function ResultView({
           />
         )}
         <div className="flex-1 text-left min-w-0">
-          <p className="text-sm text-slate-300 truncate">{recommendation.analyzed_outfit}</p>
+          <p className="text-sm text-text-body truncate">{recommendation.analyzed_outfit}</p>
           <div className="flex gap-1 mt-1 overflow-hidden">
             {recommendation.detected_style.slice(0, 4).map((tag, i) => (
-              <span key={i} className="px-2 py-0.5 bg-cyan-500/10 text-cyan-400 rounded-full text-[10px] font-medium shrink-0">
+              <span key={i} className="px-2 py-0.5 bg-navy-light/10 text-navy-light rounded-full text-[10px] font-medium shrink-0">
                 {tag}
               </span>
             ))}
             {selectedTags.slice(0, 3).map((tag, i) => (
-              <span key={`s-${i}`} className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 rounded-full text-[10px] font-medium shrink-0 flex items-center gap-0.5">
+              <span key={`s-${i}`} className="px-2 py-0.5 bg-primary/10 text-primary rounded-full text-[10px] font-medium shrink-0 flex items-center gap-0.5">
                 <Check className="w-2.5 h-2.5" />{tag}
               </span>
             ))}
           </div>
         </div>
         <svg
-          className={`w-4 h-4 text-slate-500 shrink-0 transition-transform ${showAnalysis ? "rotate-180" : ""}`}
+          className={`w-4 h-4 text-text-muted shrink-0 transition-transform ${showAnalysis ? "rotate-180" : ""}`}
           fill="none" viewBox="0 0 24 24" stroke="currentColor"
         >
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -200,15 +203,15 @@ export function ResultView({
         <motion.div
           initial={{ opacity: 0, height: 0 }}
           animate={{ opacity: 1, height: "auto" }}
-          className="bg-slate-800/60 rounded-xl p-4 border border-slate-700/50 space-y-3"
+          className="bg-[#F5F6F7] rounded-xl p-4 border border-border space-y-3"
         >
-          <div className="relative w-full aspect-[4/3] rounded-lg overflow-hidden bg-black">
+          <div className="relative w-full aspect-[4/3] rounded-lg overflow-hidden bg-[#F0F4F8]">
             {analyzedImage && (
               <img src={analyzedImage} alt="Captured" className="w-full h-full object-contain" />
             )}
             {recommendation.box_ymin > 0 && (
               <div
-                className="absolute pointer-events-none border-2 border-emerald-400 bg-emerald-400/10"
+                className="absolute pointer-events-none border-2 border-primary bg-primary/10"
                 style={{
                   top: `${Math.max(0, Math.min(100, recommendation.box_ymin / 10))}%`,
                   left: `${Math.max(0, Math.min(100, recommendation.box_xmin / 10))}%`,
@@ -218,15 +221,15 @@ export function ResultView({
               />
             )}
           </div>
-          <p className="text-slate-300 text-sm leading-relaxed">{recommendation.analyzed_outfit}</p>
+          <p className="text-text-body text-sm leading-relaxed">{recommendation.analyzed_outfit}</p>
           <div className="flex flex-wrap gap-1.5">
             {recommendation.detected_style.map((tag, i) => (
-              <span key={i} className="px-2.5 py-1 bg-cyan-500/10 text-cyan-400 rounded-full text-xs border border-cyan-500/20">
+              <span key={i} className="px-2.5 py-1 bg-navy-light/10 text-navy-light rounded-full text-xs border border-navy-light/20">
                 {tag}
               </span>
             ))}
             {selectedTags.map((tag, i) => (
-              <span key={`sel-${i}`} className="px-2.5 py-1 bg-emerald-500/10 text-emerald-400 rounded-full text-xs border border-emerald-500/20 flex items-center gap-1">
+              <span key={`sel-${i}`} className="px-2.5 py-1 bg-primary/10 text-primary rounded-full text-xs border border-primary/20 flex items-center gap-1">
                 <Check className="w-3 h-3" />{tag}
               </span>
             ))}
