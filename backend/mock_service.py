@@ -103,23 +103,33 @@ def get_mock_customer(email: str) -> dict | None:
     return MOCK_CUSTOMER_DB.get(email)
 
 
-def create_mock_customer(name: str, email: str, preferences: list[str]) -> dict:
+def create_mock_customer(name: str, email: str, preferences: list[str],
+                         body_measurements: dict | None = None,
+                         email_marketing_consent: bool = False) -> dict:
     """モック顧客作成"""
     customer = {
         "id": f"mock-customer-{len(MOCK_CUSTOMER_DB) + 1}",
         "name": name,
         "email": email,
         "style_preferences": preferences,
+        "body_measurements": body_measurements,
+        "email_marketing_consent": email_marketing_consent,
         "is_new": True,
     }
     MOCK_CUSTOMER_DB[email] = customer
     return customer
 
 
-def update_mock_customer_preferences(email: str, preferences: list[str]) -> dict | None:
+def update_mock_customer_preferences(email: str, preferences: list[str],
+                                     body_measurements: dict | None = None,
+                                     email_marketing_consent: bool | None = None) -> dict | None:
     """モック顧客の好み更新"""
     customer = MOCK_CUSTOMER_DB.get(email)
     if customer:
         customer["style_preferences"] = preferences
+        if body_measurements is not None:
+            customer["body_measurements"] = body_measurements
+        if email_marketing_consent is not None:
+            customer["email_marketing_consent"] = email_marketing_consent
         customer["is_new"] = False
     return customer

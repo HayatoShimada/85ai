@@ -35,9 +35,13 @@ async def test_search_customer_success():
                             "firstName": "太郎",
                             "lastName": "テスト",
                             "email": "test@example.com",
-                            "metafield": {
+                            "emailMarketingConsent": {
+                                "marketingState": "NOT_SUBSCRIBED",
+                            },
+                            "stylePreferences": {
                                 "value": json.dumps(["ストリート", "90s"]),
                             },
+                            "bodyMeasurements": None,
                         }
                     }
                 ]
@@ -181,3 +185,84 @@ async def test_update_preferences_metafield_value():
     assert json.loads(metafield["value"]) == prefs
     assert result["style_preferences"] == prefs
     assert result["is_new"] is False
+
+
+@pytest.mark.asyncio
+async def test_search_customer_returns_marketing_consent():
+    """検索結果に email_marketing_consent が含まれる"""
+    mock_graphql_response = {
+        "data": {
+            "customers": {
+                "edges": [{
+                    "node": {
+                        "id": "gid://shopify/Customer/999",
+                        "firstName": "テスト",
+                        "lastName": None,
+                        "email": "consent@example.com",
+                        "emailMarketingConsent": {
+                            "marketingState": "SUBSCRIBED",
+                        },
+                        "stylePreferences": {"value": "[]"},
+                        "bodyMeasurements": None,
+                    }
+                }]
+            }
+        }
+    }
+
+    mock_response = MagicMock()
+    mock_response.json.return_value = mock_graphql_response
+    mock_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.post.return_value = mock_response
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("customer_service.token_manager") as mock_tm:
+        mock_tm.get_token = AsyncMock(return_value="shpat_test")
+        with patch.dict("os.environ", {"SHOPIFY_STORE_URL": "test.myshopify.com"}):
+            with patch("customer_service.httpx.AsyncClient", return_value=mock_client):
+                from customer_service import search_customer_by_email
+                result = await search_customer_by_email("consent@example.com")
+
+    assert result["email_marketing_consent"] is True
+
+
+@pytest.mark.asyncio
+async def test_create_customer_sends_marketing_consent():
+    """顧客作成時に emailMarketingConsent が GraphQL に送信される"""
+    mock_graphql_response = {
+        "data": {
+            "customerCreate": {
+                "customer": {
+                    "id": "gid://shopify/Customer/1000",
+                    "firstName": "テスト",
+                    "lastName": None,
+                    "email": "newconsent@example.com",
+                },
+                "userErrors": [],
+            }
+        }
+    }
+
+    mock_response = MagicMock()
+    mock_response.json.return_value = mock_graphql_response
+    mock_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.post.return_value = mock_response
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("customer_service.token_manager") as mock_tm:
+        mock_tm.get_token = AsyncMock(return_value="shpat_test")
+        with patch.dict("os.environ", {"SHOPIFY_STORE_URL": "test.myshopify.com"}):
+            with patch("customer_service.httpx.AsyncClient", return_value=mock_client):
+                from customer_service import create_customer
+                result = await create_customer("テスト", "newconsent@example.com", [], None, True)
+
+    call_payload = mock_client.post.call_args[1]["json"]
+    input_data = call_payload["variables"]["input"]
+    assert input_data["emailMarketingConsent"]["marketingState"] == "SUBSCRIBED"
+    assert result["email_marketing_consent"] is True

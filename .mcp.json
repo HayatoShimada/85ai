@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "shopify-storefront": {
+      "type": "url",
+      "url": "https://ctixqe-p0.myshopify.com/api/mcp"
+    }
+  }
+}

@@ -175,8 +175,9 @@ def fetch_all_products(endpoint, headers):
 
 
 def update_product_full(endpoint, headers, product_id, product_type, tags, metafields):
-    """商品の productType, tags, metafields を一括更新"""
-    mutation = """
+    """商品の productType, tags, metafields を更新 (2段階: productUpdate + metafieldsSet)"""
+    # 1. productType + tags を productUpdate で更新
+    mutation_product = """
     mutation UpdateProduct($input: ProductInput!) {
       productUpdate(input: $input) {
         product { id title productType tags }
@@ -188,16 +189,52 @@ def update_product_full(endpoint, headers, product_id, product_type, tags, metaf
         "id": product_id,
         "productType": product_type,
         "tags": tags,
-        "metafields": metafields,
     }
-    payload = {"query": mutation, "variables": {"input": input_data}}
+    payload = {"query": mutation_product, "variables": {"input": input_data}}
     with httpx.Client(timeout=15) as client:
         r = client.post(endpoint, headers=headers, json=payload)
     r.raise_for_status()
     data = r.json()
+    if "errors" in data:
+        print(f"    ❌ GraphQLエラー: {data['errors']}")
+        return False
     errors = data.get("data", {}).get("productUpdate", {}).get("userErrors", [])
     if errors:
-        print(f"    ❌ 更新エラー: {errors}")
+        print(f"    ❌ productUpdate エラー: {errors}")
+        return False
+
+    # 2. metafields を metafieldsSet で更新 (ownerId方式)
+    if not metafields:
+        return True
+
+    mutation_mf = """
+    mutation metafieldsSet($metafields: [MetafieldsSetInput!]!) {
+      metafieldsSet(metafields: $metafields) {
+        metafields { id }
+        userErrors { field message }
+      }
+    }
+    """
+    mf_inputs = []
+    for mf in metafields:
+        mf_inputs.append({
+            "ownerId": product_id,
+            "namespace": mf["namespace"],
+            "key": mf["key"],
+            "type": mf["type"],
+            "value": mf["value"],
+        })
+    payload_mf = {"query": mutation_mf, "variables": {"metafields": mf_inputs}}
+    with httpx.Client(timeout=15) as client:
+        r = client.post(endpoint, headers=headers, json=payload_mf)
+    r.raise_for_status()
+    data = r.json()
+    if "errors" in data:
+        print(f"    ❌ metafieldsSet GraphQLエラー: {data['errors']}")
+        return False
+    errors = data.get("data", {}).get("metafieldsSet", {}).get("userErrors", [])
+    if errors:
+        print(f"    ❌ metafieldsSet エラー: {errors}")
         return False
     return True
 

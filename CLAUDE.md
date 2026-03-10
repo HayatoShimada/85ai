@@ -66,10 +66,11 @@ IDLE → PREFERENCE → CAMERA_ACTIVE → ANALYZING → RESULT → IDLE
 - **`mirror_service.py`** — Camera capture + person segmentation. Dedicated single-thread executor for AVFoundation thread safety. Art-quality mask refinement (sigmoid threshold, morphology, distance-transform feathering). Output resized to 960px width for WebP encoding performance.
 - **`vision_segmenter.py`** — Apple Vision Framework wrapper (macOS only). Input resized to 1024x768 before CGImage conversion for Neural Engine efficiency.
 - **`mock_service.py`** — Hardcoded responses for development without API keys (`MOCK_MODE=true`)
+- **`logging_config.py`** — Logging setup (all modules use `logging.getLogger(__name__)`)
 - **`services/projection_manager.py`** — State sync + mirror frame broadcaster. Single display WebSocket carries both JSON control messages and base64 mirror frames.
-- **`tag_products.py`** — Utility script to auto-tag Shopify products using Gemini + Admin API
+- **`tag_products.py`** — Auto-tag + metafield enrichment via Gemini multimodal analysis. Fetches product images/description, generates structured tags (category, material, style, color, brand, era, features) and garment measurements as metafields. Flags: `--apply` (write to Shopify), `--id <gid>` (single product), `--force` (re-tag already tagged).
 - **`normalize_measurements.py`** — Extract garment measurements from product descriptions and save as Shopify metafield `custom:measurements` (JSON). Supports tops (`肩幅49cm - 身幅63cm`), bottoms (`ウエスト 82cm`), and multi-size tables (`size1(S) 56cm～`). Run with `--apply` to write.
-- **`tests/`** — pytest + pytest-asyncio, all external calls are mocked
+- **`tests/`** — pytest + pytest-asyncio (12 files, 65 tests), all external calls are mocked
 
 ### Frontend Structure (`frontend/src/`)
 - **`app/page.tsx`** — Main iPad UI (state machine orchestrator)
@@ -89,6 +90,7 @@ Set in `backend/.env` (see `.env.example`). Key variables:
 - `SHOPIFY_STOREFRONT_ACCESS_TOKEN` — Public Storefront API token
 - `SHOPIFY_ADMIN_API_ACCESS_TOKEN` — Admin API token (`shpat_...`)
 - `SHOPIFY_CLIENT_ID` / `SHOPIFY_CLIENT_SECRET` — For auto token renewal
+- `CORS_ORIGINS` — Allowed origins (default: `*`)
 
 ## Tech Stack
 
@@ -102,20 +104,25 @@ Set in `backend/.env` (see `.env.example`). Key variables:
 - **Single WebSocket for projection**: `/ws/projection/display` carries both JSON state messages (`{...}`) and base64 mirror frames. Frontend distinguishes by checking if data starts with `{`.
 - **Thread-safe camera**: `MirrorSegmenter` uses a dedicated single-thread `ThreadPoolExecutor` for all OpenCV camera operations (AVFoundation requires same-thread access).
 
-## Environment Variables
-
-### Mirror Configuration (optional)
+### Mirror Configuration (env vars, all optional)
 - `MIRROR_CAMERA_INDEX` — Camera device index (default: 0)
+- `MIRROR_WIDTH` / `MIRROR_HEIGHT` — Capture resolution (default: 1920x1080)
+- `MIRROR_FPS` — Target framerate (default: 30)
 - `MIRROR_OUTPUT_WIDTH` — Output width before WebP encoding (default: 960)
+- `MIRROR_SEG_WIDTH` — Segmentation internal resolution for MediaPipe (default: 640)
 - `MIRROR_WEBP_QUALITY` — WebP quality 0-100 (default: 60)
-- `MIRROR_VISION_QUALITY` — Vision Framework quality 0=fast/1=balanced/2=accurate (default: 2)
-- `MIRROR_EDGE_FEATHER` — Mask edge feather width in px (default: 15)
+- `MIRROR_MASK_BLUR` — Mask blur kernel size, odd number (default: 7)
+- `MIRROR_MASK_THRESHOLD` — Mask cutoff 0.0-1.0 (default: 0.5)
+- `MIRROR_EDGE_FEATHER` — Edge feather width in px (default: 15)
 - `MIRROR_MORPH_SIZE` — Morphology kernel size (default: 5)
+- `MIRROR_VISION_QUALITY` — Vision Framework quality 0=fast/1=balanced/2=accurate (default: 2)
+- `MIRROR_SEGMENTER` — Backend: auto/vision/mediapipe (default: auto)
 
 ## Key Documentation
 
+- `README.md` — Project overview
 - `DESIGN.md` — System architecture and design decisions
 - `SPEC.md` — Detailed API specification
 - `PROJECTION_DESIGN.md` — Projector UI/UX design
-- `IMPLEMENTATION_PLAN.md` — 6-phase implementation roadmap
 - `IMPROVEMENT_PLAN.md` — Measurement normalization & body-type matching plan
+- `METADATA_SPEC.md` — Product metadata specification for AI recommendations
