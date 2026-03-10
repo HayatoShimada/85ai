@@ -123,32 +123,27 @@ async def test_analyze_gemini_error_returns_error(client, dummy_image_bytes):
 
 
 @pytest.mark.asyncio
-async def test_analyze_shopify_partial_failure(client, dummy_image_bytes):
-    """Shopify検索が部分的に失敗しても解析結果は返ること（非モック）"""
+async def test_analyze_catalog_product_resolution(client, dummy_image_bytes):
+    """カタログから商品IDで解決し、存在しないIDは空リストになること（非モック）"""
     import os
-    from unittest.mock import AsyncMock
 
     mock_gemini_result = json.dumps({
         "analyzed_outfit": "テスト服装",
         "detected_style": ["カジュアル"],
         "box_ymin": 100, "box_xmin": 200, "box_ymax": 800, "box_xmax": 700,
         "recommendations": [
-            {"title": "パターン1", "reason": "理由1", "search_keywords": ["テスト"], "category": "トップス"},
+            {"title": "パターン1", "reason": "理由1", "product_ids": [9999], "category": "トップス"},
         ],
     })
 
-    mock_shopify_error = AsyncMock(side_effect=Exception("Shopify connection timeout"))
-
     with patch.dict(os.environ, {"MOCK_MODE": "false"}):
         with patch("routers.analyze.analyze_image_and_get_tags", return_value=mock_gemini_result):
-            with patch("routers.analyze.search_products_on_shopify", mock_shopify_error):
-                res = await client.post(
-                    "/api/analyze",
-                    files={"file": ("test.jpg", dummy_image_bytes, "image/jpeg")},
-                )
-                data = res.json()
-                # 部分成功: statusはsuccessだがwarningが含まれる
-                assert data["status"] == "success"
-                assert "warning" in data
-                assert data["data"]["analyzed_outfit"] == "テスト服装"
-                assert data["data"]["recommendations"][0]["shopify_products"] == []
+            res = await client.post(
+                "/api/analyze",
+                files={"file": ("test.jpg", dummy_image_bytes, "image/jpeg")},
+            )
+            data = res.json()
+            assert data["status"] == "success"
+            assert data["data"]["analyzed_outfit"] == "テスト服装"
+            # 存在しないproduct_idなのでshopify_productsは空
+            assert data["data"]["recommendations"][0]["shopify_products"] == []

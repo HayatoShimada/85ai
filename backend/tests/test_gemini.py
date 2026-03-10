@@ -20,7 +20,7 @@ def test_clothing_analysis_schema_valid():
             {
                 "title": "テスト提案",
                 "reason": "テスト理由",
-                "search_keywords": ["スウェット", "90s"],
+                "product_ids": [1, 2],
                 "category": "トップス",
             }
         ],
@@ -39,7 +39,7 @@ def test_clothing_analysis_schema_multiple_recommendations():
         {
             "title": f"提案{i}",
             "reason": f"理由{i}",
-            "search_keywords": [f"kw{i}"],
+            "product_ids": [i + 1],
             "category": "トップス",
         }
         for i in range(3)
@@ -62,11 +62,11 @@ def test_recommendation_item_schema():
     item = RecommendationItem(
         title="ストリート風",
         reason="かっこいいの好みに合わせて",
-        search_keywords=["ジャケット", "ナイロン"],
+        product_ids=[1, 2, 3],
         category="アウター",
     )
     assert item.title == "ストリート風"
-    assert len(item.search_keywords) == 2
+    assert len(item.product_ids) == 3
     assert item.category == "アウター"
 
 
@@ -83,7 +83,7 @@ def test_clothing_analysis_json_roundtrip():
             {
                 "title": "テスト",
                 "reason": "理由",
-                "search_keywords": ["a"],
+                "product_ids": [1],
                 "category": "トップス",
             }
         ],
