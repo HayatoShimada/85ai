@@ -1,0 +1,85 @@
+<h2>デザインの方向性</h2>
+<p class="subtitle">古着屋の「AIの相棒」としてどのトーンがしっくりきますか？</p>
+
+<div class="cards">
+  <!-- Option A: レトロコンピュータ -->
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="background: #f5f0e8; padding: 24px; min-height: 280px; font-family: monospace;">
+      <div style="background: #fff; border: 2px solid #2c2c2c; border-radius: 12px; padding: 16px; box-shadow: 2px 2px 0 #2c2c2c;">
+        <div style="font-size: 11px; color: #888; letter-spacing: 2px; margin-bottom: 8px;">85-STORE AI</div>
+        <div style="font-size: 18px; color: #2c2c2c; font-weight: bold; margin-bottom: 12px;">こんにちは！<br>今日の服装を見せてください</div>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px;">
+          <span style="background: #e8dfd0; color: #5c4a32; padding: 4px 10px; border-radius: 20px; font-size: 12px; border: 1px solid #c4b69c;">カジュアル</span>
+          <span style="background: #d4e8d4; color: #2d5a2d; padding: 4px 10px; border-radius: 20px; font-size: 12px; border: 1px solid #a3c9a3;">ストリート</span>
+          <span style="background: #fff; color: #888; padding: 4px 10px; border-radius: 20px; font-size: 12px; border: 1px dashed #ccc;">+ 追加</span>
+        </div>
+        <div style="background: #f0ebe3; border-radius: 8px; padding: 10px; font-size: 12px; color: #6b5b47;">
+          <span style="margin-right: 4px;">&#9786;</span> 好みを教えてもらえると、もっと良い提案ができます
+        </div>
+      </div>
+      <div style="margin-top: 12px; display: flex; gap: 8px;">
+        <div style="flex:1; background: #2c2c2c; color: #f5f0e8; padding: 10px; border-radius: 8px; text-align: center; font-size: 13px; font-weight: bold;">撮影する</div>
+        <div style="flex:1; background: #fff; color: #2c2c2c; padding: 10px; border-radius: 8px; text-align: center; font-size: 13px; border: 1.5px solid #2c2c2c;">画像を選ぶ</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A: レトロ・クラフト</h3>
+      <p>クリーム/ベージュ系の温かい背景。手触り感のある紙のようなテクスチャ。モノクロのアクセント。古着屋の「手書きPOP」のような親しみやすさ。ピクセル的な要素は控えめに。</p>
+    </div>
+  </div>
+
+  <!-- Option B: モダン・フレンドリー -->
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="background: #fafaf8; padding: 24px; min-height: 280px;">
+      <div style="background: #fff; border-radius: 16px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04);">
+        <div style="font-size: 11px; color: #b0a090; font-weight: 600; letter-spacing: 1px; margin-bottom: 8px;">85-STORE</div>
+        <div style="font-size: 18px; color: #3a3530; font-weight: 600; margin-bottom: 12px; font-family: system-ui; line-height: 1.4;">こんにちは！<br>今日の服装を見せてください</div>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px;">
+          <span style="background: #f0e6d6; color: #7a6040; padding: 5px 12px; border-radius: 20px; font-size: 12px; font-weight: 500;">カジュアル</span>
+          <span style="background: #e0eed8; color: #4a6a3a; padding: 5px 12px; border-radius: 20px; font-size: 12px; font-weight: 500;">ストリート</span>
+          <span style="background: #f5f3f0; color: #999; padding: 5px 12px; border-radius: 20px; font-size: 12px; border: 1px dashed #ddd;">+ 追加</span>
+        </div>
+        <div style="background: #fdf8f0; border-radius: 10px; padding: 10px 12px; font-size: 12px; color: #8a7a60; border-left: 3px solid #e0c890;">
+          好みを教えてもらえると、もっと良い提案ができます
+        </div>
+      </div>
+      <div style="margin-top: 12px; display: flex; gap: 8px;">
+        <div style="flex:1; background: #3a3530; color: #faf8f5; padding: 10px; border-radius: 10px; text-align: center; font-size: 13px; font-weight: 600;">撮影する</div>
+        <div style="flex:1; background: #fff; color: #3a3530; padding: 10px; border-radius: 10px; text-align: center; font-size: 13px; border: 1.5px solid #e0dcd5; font-weight: 500;">画像を選ぶ</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B: モダン・ウォーム</h3>
+      <p>白/オフホワイト基調。柔らかいシャドウ。暖色系のアクセント（アンバー、サンド、オリーブ）。Notion/Linearのような清潔感がありつつ温かい。現代的だが冷たくない。</p>
+    </div>
+  </div>
+
+  <!-- Option C: 古着屋インスパイア -->
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="background: #e8e0d4; padding: 24px; min-height: 280px;">
+      <div style="background: #f7f2ea; border-radius: 10px; padding: 16px; border: 1px solid #d4c9b8;">
+        <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 10px;">
+          <div style="width: 8px; height: 8px; border-radius: 50%; background: #a08060;"></div>
+          <div style="font-size: 11px; color: #a08060; font-weight: 700; letter-spacing: 1px;">85-STORE AI</div>
+        </div>
+        <div style="font-size: 18px; color: #4a3f30; font-weight: 700; margin-bottom: 12px; line-height: 1.4;">こんにちは！<br>今日の服装を見せてください</div>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px;">
+          <span style="background: #c9a96e; color: #fff; padding: 5px 12px; border-radius: 4px; font-size: 12px; font-weight: 600;">カジュアル</span>
+          <span style="background: #7a8c5c; color: #fff; padding: 5px 12px; border-radius: 4px; font-size: 12px; font-weight: 600;">ストリート</span>
+          <span style="background: transparent; color: #a08060; padding: 5px 12px; border-radius: 4px; font-size: 12px; border: 1.5px dashed #c4b69c;">+ 追加</span>
+        </div>
+        <div style="background: #ede6d8; border-radius: 6px; padding: 10px; font-size: 12px; color: #6b5b42; font-style: italic;">
+          「好みを教えてくれたら、もっとピッタリの提案できるよ」
+        </div>
+      </div>
+      <div style="margin-top: 12px; display: flex; gap: 8px;">
+        <div style="flex:1; background: #6b5b42; color: #f5f0e8; padding: 10px; border-radius: 6px; text-align: center; font-size: 13px; font-weight: 700;">撮影する</div>
+        <div style="flex:1; background: #f7f2ea; color: #6b5b42; padding: 10px; border-radius: 6px; text-align: center; font-size: 13px; border: 1.5px solid #c4b69c; font-weight: 600;">画像を選ぶ</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C: ヴィンテージ・ショップ</h3>
+      <p>古着屋そのものの空気感。くすんだアースカラー。経年変化を感じるトーン。タグはラベル風の角丸なし。AIの言葉遣いも「」カギカッコつきの口語体で、店員が隣で喋ってるような感覚。</p>
+    </div>
+  </div>
+</div>
