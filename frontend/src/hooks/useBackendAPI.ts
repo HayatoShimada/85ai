@@ -12,10 +12,11 @@ export function useBackendAPI() {
    * 画像と好みタグをAPIに送信して解析結果を取得する
    */
   const sendImageToAPI = useCallback(async (
-    imageBlob: Blob, 
-    previewUrl: string, 
-    selectedTags: string[], 
-    customerId: string | null
+    imageBlob: Blob,
+    previewUrl: string,
+    selectedTags: string[],
+    customerId: string | null,
+    bodyMeasurements?: Record<string, number>
   ): Promise<{ data: ClothingAnalysis; warning?: string } | null> => {
     setIsAnalyzing(true);
     setAnalyzeError(null);
@@ -24,6 +25,9 @@ export function useBackendAPI() {
     formData.append("file", imageBlob, "capture.webp");
     formData.append("preferences", JSON.stringify(selectedTags));
     if (customerId) formData.append("customer_id", customerId);
+    if (bodyMeasurements && Object.keys(bodyMeasurements).length > 0) {
+      formData.append("body_measurements", JSON.stringify(bodyMeasurements));
+    }
 
     try {
       const res = await fetch(`${API_URL}/api/analyze`, {
@@ -68,13 +72,21 @@ export function useBackendAPI() {
   const registerCustomer = useCallback(async (
     userName: string,
     userEmail: string,
-    selectedTags: string[]
+    selectedTags: string[],
+    bodyMeasurements?: Record<string, number>,
+    emailMarketingConsent?: boolean
   ): Promise<string | null> => {
     if (!userName.trim() || !userEmail.trim()) return null;
     const formData = new FormData();
     formData.append("name", userName);
     formData.append("email", userEmail);
     formData.append("style_preferences", JSON.stringify(selectedTags));
+    if (bodyMeasurements && Object.keys(bodyMeasurements).length > 0) {
+      formData.append("body_measurements", JSON.stringify(bodyMeasurements));
+    }
+    if (emailMarketingConsent !== undefined) {
+      formData.append("email_marketing_consent", String(emailMarketingConsent));
+    }
     
     try {
       const res = await fetch(`${API_URL}/api/customers`, {

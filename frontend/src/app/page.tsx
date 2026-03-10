@@ -28,6 +28,9 @@ export default function Home() {
   const [userName, setUserName] = useState<string>("");
   const [userEmail, setUserEmail] = useState<string>("");
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [bodyMeasurements, setBodyMeasurements] = useState<Record<string, number>>({});
+  const [emailMarketingConsent, setEmailMarketingConsent] = useState(false);
+  const [privacyAgreed, setPrivacyAgreed] = useState(false);
   const toggleTag = useCallback((tag: string) => {
     setSelectedTags((prev) =>
       prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
@@ -89,6 +92,9 @@ export default function Home() {
     setRecommendation(null);
     setAnalyzeTimedOut(false);
     setAnalyzeWarning(null);
+    setBodyMeasurements({});
+    setEmailMarketingConsent(false);
+    setPrivacyAgreed(false);
     camera.stopCamera();
     changeState("IDLE");
   }, [camera, changeState]);
@@ -105,7 +111,7 @@ export default function Home() {
       }, 30000);
 
       const targetCustomerId = overrideCustomerId !== undefined ? overrideCustomerId : customerId;
-      const result = await api.sendImageToAPI(imageBlob, dataUrl, selectedTags, targetCustomerId);
+      const result = await api.sendImageToAPI(imageBlob, dataUrl, selectedTags, targetCustomerId, bodyMeasurements);
       clearTimeout(timeoutId);
 
       if (result && result.data) {
@@ -122,25 +128,31 @@ export default function Home() {
         changeState("RESULT");
       }
     },
-    [api, selectedTags, customerId, changeState]
+    [api, selectedTags, customerId, bodyMeasurements, changeState]
   );
 
   // -------------------------
   // イベントハンドラー群
   // -------------------------
 
-  const handleLookupCustomer = async () => {
-    if (!userEmail) return;
+  const handleLookupCustomer = async (): Promise<boolean> => {
+    if (!userEmail) return false;
     const cust = await api.lookupCustomer(userEmail);
     if (cust) {
       setCustomerId(cust.id);
       if (cust.name) setUserName(cust.name);
       if (cust.style_preferences?.length > 0) setSelectedTags(cust.style_preferences);
+      if (cust.body_measurements) setBodyMeasurements(cust.body_measurements);
+      if (cust.email_marketing_consent !== undefined) {
+        setEmailMarketingConsent(cust.email_marketing_consent);
+      }
+      return true;
     }
+    return false;
   };
 
   const handleProceedToCamera = async () => {
-    const cid = await api.registerCustomer(userName, userEmail, selectedTags);
+    const cid = await api.registerCustomer(userName, userEmail, selectedTags, bodyMeasurements, emailMarketingConsent);
     if (cid) setCustomerId(cid);
     camera.startCamera(camera.selectedCameraId);
     changeState("CAMERA_ACTIVE");
@@ -181,12 +193,30 @@ export default function Home() {
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const cid = await api.registerCustomer(userName, userEmail, selectedTags);
+      const cid = await api.registerCustomer(userName, userEmail, selectedTags, bodyMeasurements, emailMarketingConsent);
       if (cid) setCustomerId(cid);
       const reader = new FileReader();
       reader.onloadend = () => {
         if (reader.result) {
           processImageRequest(file, reader.result as string, cid || customerId);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleSkipToCamera = () => {
+    camera.startCamera(camera.selectedCameraId);
+    changeState("CAMERA_ACTIVE");
+  };
+
+  const handleSkipFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        if (reader.result) {
+          processImageRequest(file, reader.result as string);
         }
       };
       reader.readAsDataURL(file);
@@ -227,6 +257,8 @@ export default function Home() {
             toggleTag={toggleTag}
             onLookupCustomer={handleLookupCustomer}
             onProceed={handleProceedToCamera}
+            onSkipToCamera={handleSkipToCamera}
+            onSkipFileUpload={handleSkipFileUpload}
             cameras={camera.cameras}
             selectedCameraId={camera.selectedCameraId}
             onSelectCamera={(id) => {
@@ -236,6 +268,12 @@ export default function Home() {
             mirrorCameras={mirrorCameras}
             onSelectMirrorCamera={api.switchMirrorCamera}
             onFileUpload={handleFileUpload}
+            bodyMeasurements={bodyMeasurements}
+            setBodyMeasurements={setBodyMeasurements}
+            emailMarketingConsent={emailMarketingConsent}
+            setEmailMarketingConsent={setEmailMarketingConsent}
+            privacyAgreed={privacyAgreed}
+            setPrivacyAgreed={setPrivacyAgreed}
           />
         )}
 
