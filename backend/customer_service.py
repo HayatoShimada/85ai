@@ -44,6 +44,9 @@ async def search_customer_by_email(email: str) -> dict | None:
             firstName
             lastName
             email
+            emailMarketingConsent {
+              marketingState
+            }
             stylePreferences: metafield(namespace: "custom", key: "style_preferences") {
               value
             }
@@ -77,19 +80,23 @@ async def search_customer_by_email(email: str) -> dict | None:
         body_mf = node.get("bodyMeasurements")
         body_measurements = json.loads(body_mf["value"]) if body_mf and body_mf.get("value") else None
 
+        email_consent = node.get("emailMarketingConsent") or {}
+        email_marketing = email_consent.get("marketingState") == "SUBSCRIBED"
+
         return {
             "id": node["id"],
             "name": f"{node.get('firstName') or ''} {node.get('lastName') or ''}".strip(),
             "email": node["email"],
             "style_preferences": preferences,
             "body_measurements": body_measurements,
+            "email_marketing_consent": email_marketing,
         }
     except Exception as e:
         logger.error(f"Customer search error: {e}")
         return None
 
 
-async def create_customer(name: str, email: str, preferences: list[str], body_measurements: dict | None = None) -> dict | None:
+async def create_customer(name: str, email: str, preferences: list[str], body_measurements: dict | None = None, email_marketing_consent: bool = False) -> dict | None:
     """
     新規顧客を作成し、好みタグと体型情報をメタフィールドに保存する
     """
@@ -141,6 +148,10 @@ async def create_customer(name: str, email: str, preferences: list[str], body_me
         "lastName": last_name,
         "email": email,
         "metafields": metafields,
+        "emailMarketingConsent": {
+            "marketingState": "SUBSCRIBED" if email_marketing_consent else "NOT_SUBSCRIBED",
+            "marketingOptInLevel": "SINGLE_OPT_IN",
+        },
     }
 
     payload = {
@@ -167,6 +178,7 @@ async def create_customer(name: str, email: str, preferences: list[str], body_me
             "email": customer["email"],
             "style_preferences": preferences,
             "body_measurements": body_measurements,
+            "email_marketing_consent": email_marketing_consent,
             "is_new": True,
         }
     except Exception as e:
@@ -174,7 +186,7 @@ async def create_customer(name: str, email: str, preferences: list[str], body_me
         return None
 
 
-async def update_customer_preferences(customer_id: str, preferences: list[str], body_measurements: dict | None = None) -> dict | None:
+async def update_customer_preferences(customer_id: str, preferences: list[str], body_measurements: dict | None = None, email_marketing_consent: bool | None = None) -> dict | None:
     """
     既存顧客の好みタグと体型情報を更新する
     """
@@ -220,6 +232,11 @@ async def update_customer_preferences(customer_id: str, preferences: list[str], 
         "id": customer_id,
         "metafields": metafields,
     }
+    if email_marketing_consent is not None:
+        customer_input["emailMarketingConsent"] = {
+            "marketingState": "SUBSCRIBED" if email_marketing_consent else "NOT_SUBSCRIBED",
+            "marketingOptInLevel": "SINGLE_OPT_IN",
+        }
 
     payload = {
         "query": mutation,
@@ -245,6 +262,7 @@ async def update_customer_preferences(customer_id: str, preferences: list[str], 
             "email": customer["email"],
             "style_preferences": preferences,
             "body_measurements": body_measurements,
+            "email_marketing_consent": email_marketing_consent if email_marketing_consent is not None else False,
             "is_new": False,
         }
     except Exception as e:

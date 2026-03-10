@@ -124,3 +124,38 @@ async def test_lookup_requires_email(client):
     """emailパラメータなしだと422エラーになること"""
     res = await client.get("/api/customers")
     assert res.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_create_customer_with_marketing_consent(client):
+    """email_marketing_consent が保存されること"""
+    res = await client.post(
+        "/api/customers",
+        data={
+            "name": "マーケテスト",
+            "email": "marketing@example.com",
+            "style_preferences": json.dumps(["カジュアル"]),
+            "email_marketing_consent": "true",
+        },
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "success"
+    assert data["customer"]["email_marketing_consent"] is True
+
+
+@pytest.mark.asyncio
+async def test_create_customer_without_marketing_consent(client):
+    """email_marketing_consent デフォルトは false"""
+    res = await client.post(
+        "/api/customers",
+        data={
+            "name": "デフォルトテスト",
+            "email": "default-consent@example.com",
+            "style_preferences": "[]",
+        },
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "success"
+    assert data["customer"]["email_marketing_consent"] is False
