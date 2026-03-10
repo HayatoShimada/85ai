@@ -90,7 +90,7 @@ export default function ProjectionPage() {
   const showMirror = appState === "IDLE" || appState === "PREFERENCE" || appState === "CAMERA_ACTIVE" || appState === "ANALYZING";
 
   return (
-    <main className="w-screen h-screen overflow-hidden bg-black text-slate-100 font-sans cursor-none relative">
+    <main className="w-screen h-screen overflow-hidden bg-[#141E2B] text-[#F0F2F5] font-sans cursor-none relative">
       
       {/* 動的背景グラデーション */}
       <ProjectionBackground appState={appState} selectedTags={payload.selectedTags} />

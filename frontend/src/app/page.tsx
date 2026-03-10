@@ -238,7 +238,7 @@ export default function Home() {
   // -------------------------
 
   return (
-    <main className="min-h-screen bg-slate-950 font-sans selection:bg-emerald-500/30 text-slate-200">
+    <main className="min-h-screen bg-bg font-sans selection:bg-primary/30 text-text">
       <AnimatePresence mode="wait">
         {appState === "IDLE" && (
           <IdleView 
