@@ -38,7 +38,7 @@ export function ProjectionBackground({ appState, selectedTags }: ProjectionBackg
     }
 
     return { colors, duration };
-  }, [appState, selectedTags]);
+  }, [appState]);
 
   return (
     <>
