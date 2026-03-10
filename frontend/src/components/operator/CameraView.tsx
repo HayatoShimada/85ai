@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Camera, RefreshCcw, Monitor } from "lucide-react";
+import { Camera } from "lucide-react";
 import React from "react";
 
 interface CameraViewProps {

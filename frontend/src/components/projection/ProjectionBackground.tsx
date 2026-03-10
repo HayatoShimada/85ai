@@ -9,7 +9,7 @@ interface ProjectionBackgroundProps {
   selectedTags: string[];
 }
 
-export function ProjectionBackground({ appState, selectedTags }: ProjectionBackgroundProps) {
+export function ProjectionBackground({ appState }: ProjectionBackgroundProps) {
   const bgConfig = useMemo(() => {
     let colors = ["#141E2B", "#1E3A5F", "#2C4A6F"]; // デフォルト
     let duration = 15;

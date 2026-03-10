@@ -4,7 +4,7 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { User, Sparkles, Monitor, RotateCcw, Video, Ruler, Shield, ChevronLeft } from "lucide-react";
 import React from "react";
-import CatIcon from "@/components/icons/CatIcon";
+
 
 export const STYLE_CATEGORIES = {
   テイスト: ["かっこいい", "かわいい", "きれいめ", "ナチュラル", "個性的"],
