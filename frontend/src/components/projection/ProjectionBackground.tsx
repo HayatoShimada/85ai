@@ -10,44 +10,29 @@ interface ProjectionBackgroundProps {
 }
 
 export function ProjectionBackground({ appState, selectedTags }: ProjectionBackgroundProps) {
-  // ステートとタグに応じて背景グラデーションの色と動きを決定する
-  // (例)
-  // IDLE: slate -> emerald -> cyan
-  // PREFERENCE: インディゴ系
-  // CAMERA_ACTIVE: ダーク + エメラルドグリッド
-  // ANALYSIS: 濃紺ベースに強い赤/紫/エメラルドなどのパルス
-  // RESULT: 選ばれたタグに影響されたグラデーション
-
   const bgConfig = useMemo(() => {
-    let colors = ["#0f172a", "#10b981", "#06b6d4"]; // デフォルト
+    let colors = ["#141E2B", "#1E3A5F", "#2C4A6F"]; // デフォルト
     let duration = 15;
 
     switch (appState) {
       case "IDLE":
-        colors = ["#020617", "#065f46", "#0e7490"];
+        colors = ["#141E2B", "#1E2D3D", "#1E3A5F"];
         duration = 20;
         break;
       case "PREFERENCE":
-        colors = ["#1e1b4b", "#312e81", "#4c1d95"];
+        colors = ["#141E2B", "#2C4A6F", "#1E3A5F"];
         duration = 10;
         break;
       case "CAMERA_ACTIVE":
-        colors = ["#0a0a0a", "#022c22", "#064e3b"];
+        colors = ["#141E2B", "#1E2D3D", "#2C4A6F"];
         duration = 15;
         break;
       case "ANALYZING":
-        colors = ["#0f172a", "#059669", "#7c3aed"];
-        duration = 5; // 激しい動き
+        colors = ["#141E2B", "#FF6B35", "#1E3A5F"];
+        duration = 5;
         break;
       case "RESULT":
-        // ユーザーの好みタグに応じてグラデーションのアクセントを変える（簡易ロジック）
-        if (selectedTags.includes("ストリート") || selectedTags.includes("かっこいい")) {
-          colors = ["#09090b", "#9f1239", "#be123c"];
-        } else if (selectedTags.includes("ナチュラル") || selectedTags.includes("きれいめ")) {
-          colors = ["#1c1917", "#78716c", "#a8a29e"];
-        } else {
-          colors = ["#1e293b", "#0ea5e9", "#14b8a6"];
-        }
+        colors = ["#141E2B", "#1E3A5F", "#2C4A6F"];
         duration = 20;
         break;
     }
